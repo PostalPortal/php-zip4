@@ -39,7 +39,58 @@ class Standardizer {
     const DIRECTIONALS = [
         "N" => "N", "NORTH" => "N", "S" => "S", "SOUTH" => "S", "E" => "E", "EAST" => "E", "W" => "W", "WEST" => "W",
         "NE" => "NE", "NORTHEAST" => "NE", "NW" => "NW", "NORTHWEST" => "NW",
-        "SE" => "SE", "SOUTHEAST" => "SE", "SW" => "SW", "SOUTHWEST" => "SW"
+        "SE" => "SE", "SOUTHEAST" => "SE", "SW" => "SW", "SOUTHWEST" => "SW",
+        // Puerto Rico
+        "NORTE" => "N", "SUR" => "S", "ESTE" => "E", "OESTE" => "W",
+        "NORESTE" => "NE", "NOROESTE" => "NW", "SURESTE" => "SE", "SUROESTE" => "SW"
+    ];
+
+    /** Common misspellings of suffixes, safe to correct even without a database match */
+    const SUFFIX_MISSPELLINGS = [
+        "LN" => ["LANES"], "CT" => ["CRT"], "HTS" => ["HGTS", "HEIGHT"], "TPKE" => ["TPK", "TRPK"], "PR" => ["PRARIE"],
+        "CSWY" => ["CAUSWAY"], "CRES" => ["CRECENT", "CRESENT", "CRSCNT"], "XING" => ["CRSSING"], "HVN" => ["HAVN"],
+        "PLNS" => ["PLAINES"], "STRA" => ["STRAVE"]
+    ];
+
+    /**
+     * Informal suffix abbreviations people (and county GIS data) use. Too ambiguous to rewrite on
+     * their own ("CALLE LA"), so they're only tried as suffixes when matching against the file.
+     */
+    const SUFFIX_INFORMAL = [
+        "PKWY" => ["PW"], "CIR" => ["CI"], "CMN" => ["CM"], "BLVD" => ["BL"], "TER" => ["TE"], "LOOP" => ["LP"],
+        "LN" => ["LA"], "PARK" => ["PK"], "TRL" => ["TR"], "CRK" => ["CK", "CR"]
+    ];
+
+    const STATE_NAMES = [
+        "ALABAMA" => "AL", "ALASKA" => "AK", "ARIZONA" => "AZ", "ARKANSAS" => "AR", "CALIFORNIA" => "CA", "COLORADO" => "CO",
+        "CONNECTICUT" => "CT", "DELAWARE" => "DE", "DISTRICT OF COLUMBIA" => "DC", "FLORIDA" => "FL", "GEORGIA" => "GA",
+        "HAWAII" => "HI", "IDAHO" => "ID", "ILLINOIS" => "IL", "INDIANA" => "IN", "IOWA" => "IA", "KANSAS" => "KS",
+        "KENTUCKY" => "KY", "LOUISIANA" => "LA", "MAINE" => "ME", "MARYLAND" => "MD", "MASSACHUSETTS" => "MA",
+        "MICHIGAN" => "MI", "MINNESOTA" => "MN", "MISSISSIPPI" => "MS", "MISSOURI" => "MO", "MONTANA" => "MT",
+        "NEBRASKA" => "NE", "NEVADA" => "NV", "NEW HAMPSHIRE" => "NH", "NEW JERSEY" => "NJ", "NEW MEXICO" => "NM",
+        "NEW YORK" => "NY", "NORTH CAROLINA" => "NC", "NORTH DAKOTA" => "ND", "OHIO" => "OH", "OKLAHOMA" => "OK",
+        "OREGON" => "OR", "PENNSYLVANIA" => "PA", "RHODE ISLAND" => "RI", "SOUTH CAROLINA" => "SC", "SOUTH DAKOTA" => "SD",
+        "TENNESSEE" => "TN", "TEXAS" => "TX", "UTAH" => "UT", "VERMONT" => "VT", "VIRGINIA" => "VA", "WASHINGTON" => "WA",
+        "WEST VIRGINIA" => "WV", "WISCONSIN" => "WI", "WYOMING" => "WY", "PUERTO RICO" => "PR", "GUAM" => "GU",
+        "VIRGIN ISLANDS" => "VI", "AMERICAN SAMOA" => "AS", "NORTHERN MARIANA ISLANDS" => "MP"
+    ];
+
+    /** State codes USPS uses, including territories, freely associated states and the military "states" */
+    const STATE_CODES = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS",
+        "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+        "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "PR", "GU", "VI", "AS", "MP",
+        "FM", "MH", "PW", "AA", "AE", "AP"];
+
+    /** Accented letters and look-alike punctuation, folded to what the ZIP+4 file uses (PEÑA => PENA, 12–34 => 12-34) */
+    const ASCII_FOLD = [
+        "À" => "A", "Á" => "A", "Â" => "A", "Ã" => "A", "Ä" => "A", "Å" => "A", "à" => "A", "á" => "A", "â" => "A", "ã" => "A", "ä" => "A", "å" => "A",
+        "Ç" => "C", "ç" => "C", "È" => "E", "É" => "E", "Ê" => "E", "Ë" => "E", "è" => "E", "é" => "E", "ê" => "E", "ë" => "E",
+        "Ì" => "I", "Í" => "I", "Î" => "I", "Ï" => "I", "ì" => "I", "í" => "I", "î" => "I", "ï" => "I", "Ñ" => "N", "ñ" => "N",
+        "Ò" => "O", "Ó" => "O", "Ô" => "O", "Õ" => "O", "Ö" => "O", "Ø" => "O", "ò" => "O", "ó" => "O", "ô" => "O", "õ" => "O", "ö" => "O", "ø" => "O",
+        "Ù" => "U", "Ú" => "U", "Û" => "U", "Ü" => "U", "ù" => "U", "ú" => "U", "û" => "U", "ü" => "U", "Ý" => "Y", "ý" => "Y", "ÿ" => "Y",
+        "ß" => "SS", "Æ" => "AE", "æ" => "AE", "Œ" => "OE", "œ" => "OE",
+        "\u{2010}" => "-", "\u{2011}" => "-", "\u{2012}" => "-", "\u{2013}" => "-", "\u{2014}" => "-", "\u{2212}" => "-",
+        "\u{2018}" => "", "\u{2019}" => "", "\u{201C}" => " ", "\u{201D}" => " ", "\u{00A0}" => " ", "\u{00BD}" => " 1/2"
     ];
 
     /** Pub 28 Appendix C1: standard abbreviation => spellings seen in the wild */
@@ -145,13 +196,16 @@ class Standardizer {
     ];
 
     private static ?array $suffixLookup = null;
+    private static ?array $informalSuffixLookup = null;
     private static ?array $secondaryLookup = null;
     private PDO $db;
+    private ?string $path = null;
     private array $statements = [];
-    private array $cache = ["zip" => [], "city" => [], "lastline" => [], "streets" => []];
+    private array $cache = ["zip" => [], "city" => [], "lastline" => [], "streets" => [], "rows" => []];
 
     /**
      * @param PDO|string $db An open PDO connection to the ZIP+4 database, or the path to the SQLite file.
+     *   A path is opened read-only (ensureIndexes() opens its own writable connection when it has to).
      * @throws Exception if the file or the tables aren't there.
      */
     public function __construct(PDO|string $db) {
@@ -159,10 +213,13 @@ class Standardizer {
             if (!is_file($db)) {
                 throw new Exception("ZIP+4 database not found at $db");
             }
-            $db = new PDO("sqlite:$db");
+            $this->path = $db;
+            $db = new PDO("sqlite:$db", null, null, [PDO::SQLITE_ATTR_OPEN_FLAGS => PDO::SQLITE_OPEN_READONLY]);
         }
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        // Lookups jump around a multi-gigabyte file: a bigger page cache and memory-mapped reads help a lot
+        $db->exec("PRAGMA temp_store = MEMORY; PRAGMA cache_size = -65536; PRAGMA mmap_size = 268435456;");
         $this->db = $db;
         foreach (["ZIP4", "ZIPCodes"] as $table) {
             if (!$this->db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = " . $this->db->quote($table))->fetch()) {
@@ -179,27 +236,45 @@ class Standardizer {
      * @return array The names of the indexes created.
      */
     public function ensureIndexes(?callable $log = null): array {
+        $missing = $this->missingIndexes();
+        if (count($missing) == 0) {
+            return [];
+        }
+        $writer = $this->path === null ? $this->db : new PDO("sqlite:" . $this->path);
+        $writer->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $created = [];
-        foreach ($this->missingIndexes() as $name => [$table, $columns]) {
+        foreach ($missing as $name => [$table, $alternatives, $columns]) {
             if ($log) {
                 $log("Creating index $name on $table(" . implode(", ", $columns) . ")...");
             }
-            $this->db->exec("CREATE INDEX IF NOT EXISTS \"$name\" ON \"$table\" (\"" . implode("\", \"", $columns) . "\")");
+            $writer->exec("CREATE INDEX IF NOT EXISTS \"$name\" ON \"$table\" (\"" . implode("\", \"", $columns) . "\")");
             $created[] = $name;
         }
         return $created;
     }
 
+    /**
+     * name => [table, leading columns of any existing index that does the job, columns to create it on].
+     * The alternatives cover the indexes AddressDatabase's zipdbgen.py builds (zip, stname_state_zip,
+     * Index_ZIPCodes_State...), so a database made with it is used as is.
+     */
     const INDEXES = [
-        "idx_zip4_zipcode_stname" => ["ZIP4", ["ZipCode", "StName"]],
-        "idx_zipcodes_zipcode" => ["ZIPCodes", ["ZipCode"]],
-        "idx_zipcodes_state_city" => ["ZIPCodes", ["State", "City"]],
-        "idx_zipcodes_citystatekey" => ["ZIPCodes", ["CityStateKey"]]
+        "idx_zip4_zipcode_stname" => ["ZIP4", [["ZipCode"], ["StName"]], ["ZipCode", "StName"]],
+        "idx_zipcodes_zipcode" => ["ZIPCodes", [["ZipCode"]], ["ZipCode"]],
+        "idx_zipcodes_state_city" => ["ZIPCodes", [["State"]], ["State", "City"]],
+        "idx_zipcodes_citystatekey" => ["ZIPCodes", [["CityStateKey"]], ["CityStateKey"]]
     ];
 
-    /** The indexes the matcher needs that aren't there (an existing index on the same leading columns counts). */
+    /** The indexes the matcher needs that aren't there (an existing index with suitable leading columns counts). */
     public function missingIndexes(): array {
-        return array_filter(self::INDEXES, fn($i) => !$this->hasIndexStartingWith($i[0], $i[1]));
+        return array_filter(self::INDEXES, function ($i) {
+            foreach ($i[1] as $leading) {
+                if ($this->hasIndexStartingWith($i[0], $leading)) {
+                    return false;
+                }
+            }
+            return true;
+        });
     }
 
     private function hasIndexStartingWith(string $table, array $columns): bool {
@@ -219,8 +294,13 @@ class Standardizer {
 
     /** Uppercases and strips the punctuation Pub 28 drops, keeping # / and - where they mean something. */
     public static function cleanText(?string $s): string {
-        $s = strtoupper(trim($s ?? ""));
-        $s = str_replace(["'", "`", "\u{2019}"], "", $s);
+        $s = strtr(trim($s ?? ""), self::ASCII_FOLD);
+        if (preg_match('/[^\x00-\x7F]/', $s) && function_exists("iconv")) {
+            $t = @iconv("UTF-8", "ASCII//TRANSLIT//IGNORE", $s);
+            $s = $t === false ? $s : $t;
+        }
+        $s = strtoupper($s);
+        $s = str_replace(["'", "`"], "", $s);
         $s = preg_replace('/(?<=\d)\.(?=\d)/', "\x01", $s); // decimal points
         $s = preg_replace('/[^A-Z0-9#\/\-&\x01]+/', " ", $s);
         $s = str_replace("\x01", ".", $s);
@@ -245,17 +325,68 @@ class Standardizer {
         return [$zip, ""];
     }
 
-    public static function suffixAbbr(string $word): ?string {
+    /**
+     * The standard suffix abbreviation for a word, or null if it isn't one.
+     * @param bool $informal Also accept the informal ones (PW, CI, LA, CR...): only when the file will confirm it.
+     */
+    public static function suffixAbbr(string $word, bool $informal = false): ?string {
         if (self::$suffixLookup === null) {
             self::$suffixLookup = [];
-            foreach (self::SUFFIXES as $abbr => $variants) {
-                self::$suffixLookup[$abbr] = $abbr;
+            foreach ([self::SUFFIXES, self::SUFFIX_MISSPELLINGS] as $list) {
+                foreach ($list as $abbr => $variants) {
+                    self::$suffixLookup[$abbr] = $abbr;
+                    foreach ($variants as $v) {
+                        self::$suffixLookup[$v] = $abbr;
+                    }
+                }
+            }
+            self::$informalSuffixLookup = self::$suffixLookup;
+            foreach (self::SUFFIX_INFORMAL as $abbr => $variants) {
                 foreach ($variants as $v) {
-                    self::$suffixLookup[$v] = $abbr;
+                    self::$informalSuffixLookup[$v] ??= $abbr;
                 }
             }
         }
-        return self::$suffixLookup[$word] ?? null;
+        return ($informal ? self::$informalSuffixLookup : self::$suffixLookup)[$word] ?? null;
+    }
+
+    /** "MONTANA" or "MT" => "MT"; anything else => null */
+    public static function stateCode(string $s): ?string {
+        $s = self::cleanText($s);
+        return self::STATE_NAMES[$s] ?? (in_array($s, self::STATE_CODES, true) ? $s : null);
+    }
+
+    /**
+     * People paste the whole address into the street line ("123 Main St, Helena, MT 59601") or the
+     * last line into the city ("Helena, MT 59601"). Splits those out, filling in only what's empty.
+     * @return array [street1, city, state, zip]
+     */
+    public static function splitLastLine(string $street1, string $city, string $state, string $zip): array {
+        $countryTail = '/[,\s]*\b(USA|U\.S\.A\.?|UNITED STATES(?: OF AMERICA)?)\s*$/i';
+        $street1 = trim(preg_replace($countryTail, "", $street1));
+        $city = trim(preg_replace($countryTail, "", $city));
+        $fits = function (string $code, ?string $tailZip) use (&$state, &$zip): bool {
+            return ($state === "" || self::stateCode($state) === $code)
+                    && ($zip === "" || $tailZip === null || $tailZip === "" || self::splitZip($zip)[0] === substr($tailZip, 0, 5));
+        };
+        $lastLine = '([A-Za-z][A-Za-z .\'\-]*?)\s*,?\s+([A-Za-z]{2}|[A-Za-z]{4,}(?: [A-Za-z]+)?)\.?(?:\s+(\d{5}(?:-?\d{4})?))?';
+        // (not "123 Main St, Unit PA": a unit isn't a city)
+        if (preg_match("/^(.+?),\s*$lastLine\s*$/", $street1, $m) && ($code = self::stateCode($m[3])) !== null && $fits($code, $m[4] ?? null)
+                && self::secondaryAbbr(explode(" ", self::cleanText($m[2]))[0]) === null) {
+            $street1 = trim($m[1]);
+            $city = $city === "" ? trim($m[2]) : $city;
+            $state = $state === "" ? $code : $state;
+            $zip = $zip === "" ? ($m[4] ?? "") : $zip;
+        }
+        if (preg_match('/^([A-Za-z][A-Za-z .\'\-]*?)\s*[,\s]\s*([A-Za-z]{2})\.?(?:\s+(\d{5}(?:-?\d{4})?))?$/', $city, $m)
+                && ($code = self::stateCode($m[2])) !== null && $fits($code, $m[3] ?? null)) {
+            $city = trim($m[1]);
+            $state = $state === "" ? $code : $state;
+            $zip = $zip === "" ? ($m[3] ?? "") : $zip;
+        }
+        $city = preg_replace('/^(CITY|TOWN|VILLAGE|TOWNSHIP|BOROUGH) OF /i', "", trim($city));
+        $city = trim(preg_replace('/\bUNINCORPORATED\b/i', "", $city));
+        return [$street1, $city, $state, $zip];
     }
 
     public static function directionalAbbr(string $word): ?string {
@@ -361,8 +492,13 @@ class Standardizer {
 
         // House number: 123, 123A, 12-34 (Queens), N123W4567 (Wisconsin grid). Not 1ST, which is a street name.
         $number = "";
-        if (preg_match('/^(\d+[A-Z]?(-\d*[A-Z]?)?|[NSEW]\d+[NSEW]\d+|\d+-[A-Z])$/', $tokens[0])) {
+        // Puerto Rico's A12 or A-12 too, but not N12 (a directional and a street)
+        if (preg_match('/^(\d+[A-Z]?(-\d*[A-Z]?)?|[NSEW]\d+[NSEW]\d+|\d+-[A-Z]|[A-DF-MO-RT-VX-Z]-?\d+[A-Z]?)$/', $tokens[0])) {
             $number = array_shift($tokens);
+            // "1234 1234 MAIN ST", from sources that put the number in twice
+            if (isset($tokens[1]) && $tokens[0] === $number) {
+                array_shift($tokens);
+            }
         }
         if ($number === "") {
             return $out;
@@ -394,11 +530,18 @@ class Standardizer {
             }
         }
         $readings[] = ["street" => $tokens, "secondary" => null, "likely" => $preferred === null];
-        // A bare trailing unit: "123 MAIN ST 4B". Only used if the database likes it better.
+        // A bare trailing unit: "123 MAIN ST 4B", "123 BROADWAY B". Only used if the database likes it better,
+        // and not after words that take a number (COUNTY ROAD 5, HIGHWAY 12, BOX 4).
         $last = end($tokens);
-        if (count($tokens) >= 3 && self::isUnitId($last) && preg_match('/\d/', $last) && $preferred === null
-                && self::suffixAbbr(prev($tokens)) !== null) {
+        $beforeLast = count($tokens) >= 2 ? $tokens[count($tokens) - 2] : "";
+        if (count($tokens) >= 2 && $preferred === null
+                && (preg_match('/^\d{1,5}[A-Z]?$/', $last) || (preg_match('/^[A-Z]$/', $last) && self::directionalAbbr($last) === null))
+                && !preg_match('/^(HWY|HIGHWAY|ROUTE|RTE|RT|ROAD|RD|INTERSTATE|I|US|SR|CR|FM|COUNTY|STATE|BOX|UNIT|PSC|CMR)$/', $beforeLast)) {
             $readings[] = ["street" => array_slice($tokens, 0, -1), "secondary" => ["designator" => "#", "id" => $last, "text" => "# $last"], "likely" => false];
+        }
+        // "1234 A MAIN ST" meaning 1234A (a separate letter, not a street named A or a directional)
+        if (count($tokens) >= 3 && preg_match('/^\d+$/', $number) && preg_match('/^[A-Z]$/', $tokens[0]) && self::directionalAbbr($tokens[0]) === null) {
+            $readings[] = ["street" => array_slice($tokens, 1), "secondary" => null, "likely" => false, "number" => $number . $tokens[0]];
         }
         usort($readings, fn($a, $b) => $b["likely"] <=> $a["likely"]);
 
@@ -409,12 +552,16 @@ class Standardizer {
      * The ways a list of street tokens could split into predirectional, name, suffix and postdirectional.
      * @return array of ["pre", "name", "suffix", "post", "names" => [name spellings to look up]]
      */
-    public static function streetCandidates(array $tokens): array {
+    public static function streetCandidates(array $tokens, bool $informal = false): array {
         // "TWENTY NINTH" typed without the hyphen
         for ($i = 0; $i < count($tokens) - 1; $i++) {
             if (isset(self::TENS[$tokens[$i]]) && isset(self::ORDINALS[$tokens[$i + 1]])) {
                 array_splice($tokens, $i, 2, [$tokens[$i] . "-" . $tokens[$i + 1]]);
             }
+        }
+        // "MAIN STREET ST", "OAK DR DRIVE": the suffix twice
+        while (count($tokens) >= 3 && self::suffixAbbr(end($tokens)) !== null && self::suffixAbbr(end($tokens)) === self::suffixAbbr($tokens[count($tokens) - 2])) {
+            array_pop($tokens);
         }
         $n = count($tokens);
         if ($n == 0) {
@@ -432,8 +579,8 @@ class Standardizer {
             }
             foreach ($postOptions as [$post, $end, $postWord]) {
                 $suffixOptions = [["", $end]];
-                if ($end - $start > 1 && self::suffixAbbr($tokens[$end - 1]) !== null) {
-                    $suffixOptions[] = [self::suffixAbbr($tokens[$end - 1]), $end - 1];
+                if ($end - $start > 1 && self::suffixAbbr($tokens[$end - 1], $informal) !== null) {
+                    $suffixOptions[] = [self::suffixAbbr($tokens[$end - 1], $informal), $end - 1];
                 }
                 foreach ($suffixOptions as [$suffix, $nameEnd]) {
                     $name = array_slice($tokens, $start, $nameEnd - $start);
@@ -473,7 +620,10 @@ class Standardizer {
             $expanded[] = self::NAME_ALTERNATES[$num] ?? $num;
             $abbreviated[] = $reverse[$num] ?? $num;
         }
-        $spellings = [implode(" ", $words), implode(" ", $expanded), implode(" ", $abbreviated)];
+        // Suffix abbreviations inside the name are spelled out in the file: S CRK RD is S CREEK RD,
+        // MTN VIEW DR is MOUNTAIN VIEW DR, LK SHORE DR is LAKE SHORE DR
+        $longhand = array_map(fn($w) => isset(self::SUFFIXES[$w][0]) ? self::SUFFIXES[$w][0] : (self::ordinalWord($w) ?? $w), $words);
+        $spellings = [implode(" ", $words), implode(" ", $expanded), implode(" ", $abbreviated), implode(" ", $longhand)];
         // "N SLOPE" typed for the street named NORTH SLOPE (and "BOULDER W" for BOULDER WEST)
         $full = ["N" => "NORTH", "S" => "SOUTH", "E" => "EAST", "W" => "WEST", "NE" => "NORTHEAST", "NW" => "NORTHWEST", "SE" => "SOUTHEAST", "SW" => "SOUTHWEST"];
         if (count($words) > 1 && (isset($full[$words[0]]) || isset($full[end($words)]))) {
@@ -482,22 +632,68 @@ class Standardizer {
             $w[count($w) - 1] = $full[$w[count($w) - 1]] ?? $w[count($w) - 1];
             $spellings[] = implode(" ", $w);
         }
-        // County roads: "CR 5", "CO RD 5", "COUNTY RD 5" all mean COUNTY ROAD 5
-        $joined = implode(" ", $words);
-        $county = preg_replace('/^(CR|CO RD|CNTY RD|COUNTY RD|CO ROAD|CNTY ROAD) /', "COUNTY ROAD ", $joined);
-        $highway = preg_replace('/^(US HWY|US HIGHWAY|US) (\d+)/', 'US HIGHWAY $2', preg_replace('/^(HWY|HIWAY|HGWY|HY) /', "HIGHWAY ", $joined));
-        $state = preg_replace('/^(STATE HWY|ST HWY|SH|STATE HIGHWAY) /', "STATE HIGHWAY ", $joined);
-        // I-15, I 15, I15, IH-15, INTERSTATE HWY 15, HWY I-15: the file says INTERSTATE 15
-        if (preg_match('/^(?:HWY |HIGHWAY )?(?:I|IH|INTERSTATE|INTERSTATE HWY|INTERSTATE HIGHWAY|INTERSTATE ROUTE)[ \-]?(\d+)$/', $joined, $m)) {
-            $spellings[] = "INTERSTATE $m[1]";
-        }
-        // MT-200, MT HWY 200, SR 200, STATE HWY 200: the file has one of these depending on the state
-        if (preg_match('/^(?:[A-Z]{2}|STATE|ST)[ \-]?(?:HWY |HIGHWAY |RT |RTE |ROUTE |RD |ROAD )?(\d+)$/', $joined, $m) && !preg_match('/^(US|CO|CR|IH)\b/', $joined)) {
-            array_push($spellings, "STATE HIGHWAY $m[1]", "HIGHWAY $m[1]", "STATE ROUTE $m[1]", "STATE ROAD $m[1]");
-        }
-        $route = preg_replace('/^(SR|ST RT|ST RTE|STATE RT|STATE RTE) /', "STATE ROUTE ", $joined);
-        array_push($spellings, $county, $highway, $state, $route);
+        array_push($spellings, ...self::roadNumberSpellings(implode(" ", $words)));
         return array_values(array_unique($spellings));
+    }
+
+    /**
+     * The ways the file might spell a numbered road. Pub 28 and the ZIP+4 file use INTERSTATE 15,
+     * US HIGHWAY 12, KY HIGHWAY 1234, STATE HIGHWAY 200, COUNTY ROAD 5, FM 1960, FOREST SERVICE ROAD 4100...
+     * Several spellings of the state ones are tried, since which one the file has depends on the state.
+     */
+    public static function roadNumberSpellings(string $joined): array {
+        $out = [];
+        $num = '[ \-]?(\d+[A-Z]?)';
+        // County roads and highways: CR 5, CO RD 5, CNTY HWY 5
+        $out[] = preg_replace('/^(CR|CO RD|CNTY RD|COUNTY RD|CO ROAD|CNTY ROAD)[ \-]/', "COUNTY ROAD ", $joined);
+        $out[] = preg_replace('/^(CO|CNTY|COUNTY) (HWY|HIGHWAY) /', "COUNTY HIGHWAY ", $joined);
+        // Indiana-style grid: N COUNTY ROAD 500 E is N 500 E in the file
+        if (preg_match('/^(?:COUNTY ROAD|COUNTY RD|CR|CO RD) (\d{3,})$/', $joined, $m)) {
+            $out[] = $m[1];
+        }
+        // US highways: US 12, US-12, U S HWY 12, UNITED STATES HIGHWAY 12, US ROUTE 12
+        if (preg_match("/^(?:HWY |HIGHWAY )?(?:US HWY|US HIGHWAY|US ROUTE|US RTE|US RT|U S HWY|U S HIGHWAY|U S|US|UNITED STATES HWY|UNITED STATES HIGHWAY|UNITED STATES ROUTE|UNITED STATES)$num$/", $joined, $m)) {
+            $out[] = "US HIGHWAY $m[1]";
+        }
+        // Interstates: I-15, I 15, I15, IH-15, INTERSTATE HWY 15, HWY I-15
+        if (preg_match("/^(?:HWY |HIGHWAY )?(?:I|IH|INTERSTATE|INTERSTATE HWY|INTERSTATE HIGHWAY|INTERSTATE ROUTE)$num$/", $joined, $m)) {
+            $out[] = "INTERSTATE $m[1]";
+        }
+        // Plain highways, and HWY inside a longer name (OLD HWY 10 / OLD HIGHWAY 10)
+        $out[] = preg_replace('/^(HWY|HIWAY|HGWY|HY) /', "HIGHWAY ", $joined);
+        $out[] = preg_replace('/(?<=\S) HIGHWAY (\d+)/', ' HWY $1', $joined);
+        $out[] = preg_replace('/(?<=\S) (HWY|HIWAY) (\d+)/', ' HIGHWAY $2', $joined);
+        // State routes with a state named: KY 1234, MT-200, MONTANA HWY 200, KENTUCKY STATE HIGHWAY 625
+        if (preg_match("/^(.+?)(?: STATE)?(?: HWY| HIGHWAY| RT| RTE| ROUTE| RD| ROAD)?$num$/", $joined, $m)) {
+            $code = self::STATE_NAMES[$m[1]] ?? (in_array($m[1], self::STATE_CODES, true) && $m[1] !== "US" ? $m[1] : null);
+            if ($code !== null) {
+                array_push($out, "$code HIGHWAY $m[2]", "$code STATE HIGHWAY $m[2]", "STATE HIGHWAY $m[2]", "HIGHWAY $m[2]", "STATE ROUTE $m[2]", "STATE ROAD $m[2]");
+            }
+        }
+        // ...and without: SR 200, SH 200, STATE HWY 200, ST RTE 200
+        if (preg_match("/^(?:SR|SH|ST|STATE|ST HWY|STATE HWY|STATE HIGHWAY|ST RT|ST RTE|STATE RT|STATE RTE|STATE ROUTE|ST RD|STATE RD|STATE ROAD)$num$/", $joined, $m)) {
+            array_push($out, "STATE HIGHWAY $m[1]", "STATE ROUTE $m[1]", "STATE ROAD $m[1]", "HIGHWAY $m[1]");
+        }
+        // Texas farm to market roads: FM 1960, FARM TO MARKET 1960, HWY FM 1960
+        if (preg_match("/^(?:HWY |HIGHWAY )?(?:FM|F M|FARM TO MARKET|FARM TO MARKET RD|FARM TO MARKET ROAD|FARM RD|FARM ROAD|FM RD|FM ROAD)$num$/", $joined, $m)) {
+            $out[] = "FM $m[1]";
+        }
+        // Forest Service roads: FS RD 4100, FSR 4100, NFSR 4100, USFS 4100, FOREST RD 4100
+        if (preg_match("/^(?:FS|FSR|NFSR|NFS|NF|NFD|USFS|FS RD|FS ROAD|FSR RD|USFS RD|USFS ROAD|FOREST SERVICE|FOREST SERVICE RD|FOREST SERVICE ROAD|FOREST RD|FOREST ROAD|NATIONAL FOREST RD|NATIONAL FOREST ROAD|NATIONAL FOREST DEVELOPMENT RD|NATIONAL FOREST DEVELOPMENT ROAD|US FOREST SERVICE RD|US FOREST SERVICE ROAD|UNITED STATES FOREST SERVICE RD|UNITED STATES FOREST SERVICE ROAD)$num(?: RD| ROAD)?$/", $joined, $m)) {
+            array_push($out, "FOREST SERVICE ROAD $m[1]", "FOREST ROAD $m[1]", "NATIONAL FOREST DEVELOPMENT ROAD $m[1]");
+        }
+        // Township and private roads: TSR 12, TWP RD 12, PR 1234, PVT RD 1234
+        if (preg_match("/^(?:TSR|TWP RD|TWP ROAD|TWSP RD|TOWNSHIP RD|T R|TR)$num$/", $joined, $m)) {
+            $out[] = "TOWNSHIP ROAD $m[1]";
+        }
+        if (preg_match("/^(?:PR|PVT RD|PVT ROAD|PRIV RD|PRIVATE RD)$num$/", $joined, $m)) {
+            $out[] = "PRIVATE ROAD $m[1]";
+        }
+        // Martin Luther King Jr: MLK, M L KING, MARTIN L KING JR
+        if (preg_match('/^(?:M L K|MLK|M L KING|ML KING|MARTIN L KING|MARTIN LUTHER KING|DR MARTIN LUTHER KING|DR M L KING)(?: JR)?$/', $joined)) {
+            array_push($out, "MARTIN LUTHER KING JR", "MARTIN LUTHER KING", "DR MARTIN LUTHER KING JR");
+        }
+        return $out;
     }
 
     /** Pub 28 formatting of a parsed line without any database, for addresses that couldn't be matched. */
@@ -520,7 +716,7 @@ class Standardizer {
                 // The reading that uses the most of the standard parts
                 usort($c, fn($a, $b) => (($b["pre"] != "") + ($b["suffix"] != "") + ($b["post"] != "")) <=> (($a["pre"] != "") + ($a["suffix"] != "") + ($a["post"] != "")));
                 $street = $c[0];
-                return self::joinParts($p["number"], $p["fraction"], $street["pre"], $street["name"], $street["suffix"], $street["post"], $reading["secondary"]["text"] ?? "");
+                return self::joinParts($reading["number"] ?? $p["number"], $p["fraction"], $street["pre"], $street["name"], $street["suffix"], $street["post"], $reading["secondary"]["text"] ?? "");
             default:
                 return $p["text"];
         }
@@ -669,7 +865,15 @@ class Standardizer {
                 . "BaseAlternateCode, LACSStatus, State, PreferredLastLineKey FROM ZIP4 "
                 . "WHERE ZipCode IN (" . self::placeholders($zips) . ") AND StName IN (" . self::placeholders($names) . ") "
                 . "AND RecordType IN (" . self::placeholders($types) . ") AND (Action IS NULL OR Action <> 'D')";
-        return $this->query($sql, array_merge($zips, $names, $types));
+        $params = array_merge($zips, $names, $types);
+        $key = implode("\x1f", $params) . "\x1e" . count($zips) . "," . count($names);
+        if (!isset($this->cache["rows"][$key])) {
+            if (count($this->cache["rows"]) >= 2000) {
+                array_shift($this->cache["rows"]);
+            }
+            $this->cache["rows"][$key] = $this->query($sql, $params);
+        }
+        return $this->cache["rows"][$key];
     }
 
     /** Every street name in a ZIP, for spelling correction. */
@@ -804,7 +1008,11 @@ class Standardizer {
         if (($row["BaseAlternateCode"] ?? "B") == "B") {
             $score += 1;
         }
-        return ["score" => $score, "inRange" => $inRange, "unitInRange" => $unitInRange, "unitFromCompany" => $unitFromCompany, "firmMatched" => $firmMatched];
+        // How many house numbers the record covers: a single-address record beats the block range it sits in
+        $lo = self::numberParts($row["AddressPrimaryLowNumber"] ?? "");
+        $hi = self::numberParts($row["AddressPrimaryHighNumber"] ?? "");
+        $width = ($lo !== null && $hi !== null) ? abs($hi[1] - $lo[1]) : PHP_INT_MAX;
+        return ["score" => $score, "inRange" => $inRange, "unitInRange" => $unitInRange, "unitFromCompany" => $unitFromCompany, "firmMatched" => $firmMatched, "width" => $width];
     }
 
     /** Whether a typed unit designator can mean the file's ("#" can mean anything; APT, LOT, TRLR... each other). */
@@ -866,13 +1074,13 @@ class Standardizer {
         $tries = [];
         if ($parsed["type"] == "street") {
             foreach ($parsed["readings"] as $reading) {
-                foreach (self::streetCandidates($reading["street"]) as $cand) {
-                    $tries[] = [$cand, $reading["secondary"], $reading["likely"]];
+                foreach (self::streetCandidates($reading["street"], true) as $cand) {
+                    $tries[] = [$cand, $reading["secondary"], $reading["likely"], $reading["number"] ?? $parsed["number"]];
                 }
             }
             $types = ["S", "H", "F"];
         } else {
-            $tries[] = [["pre" => "", "name" => $parsed["name"], "suffix" => "", "post" => "", "names" => [$parsed["name"]]], null, true];
+            $tries[] = [["pre" => "", "name" => $parsed["name"], "suffix" => "", "post" => "", "names" => [$parsed["name"]]], null, true, $parsed["number"]];
             $types = ["pobox" => ["P"], "rural" => ["R"], "military" => ["S", "H", "P"], "general" => ["G"]][$parsed["type"]];
         }
         if (count($tries) == 0) {
@@ -910,18 +1118,18 @@ class Standardizer {
         $streets = [];
         $unitHits = [];
         foreach ($rows as $row) {
-            foreach ($tries as [$cand, $secondary, $likely]) {
+            foreach ($tries as [$cand, $secondary, $likely, $number]) {
                 if (!in_array($row["StName"], $cand["names"], true)) {
                     continue;
                 }
-                $number = $parsed["number"];
                 $s = self::scoreRow($row, $cand, $number, $secondary, $likely, $company);
                 $key = implode("|", [$row["ZipCode"], $row["StPreDirAbbr"], $row["StName"], $row["StSuffixAbbr"], $row["StPostDirAbbr"]]);
                 if ($s["unitInRange"] && $s["inRange"]) {
                     $unitHits[$key][$row["AddressSecAbbr"] . "|" . $row["Plus4Low"]] = $row["AddressSecAbbr"];
                 }
-                if (!isset($streets[$key]) || $s["score"] > $streets[$key]["score"]) {
-                    $streets[$key] = $s + ["row" => $row, "cand" => $cand, "secondary" => $secondary, "fuzzy" => $fuzzy];
+                if (!isset($streets[$key]) || $s["score"] > $streets[$key]["score"]
+                        || ($s["score"] == $streets[$key]["score"] && $s["width"] < $streets[$key]["width"])) {
+                    $streets[$key] = $s + ["row" => $row, "cand" => $cand, "secondary" => $secondary, "fuzzy" => $fuzzy, "number" => $number];
                 }
             }
         }
@@ -966,7 +1174,9 @@ class Standardizer {
      */
     public function standardize(?string $street1, ?string $street2, ?string $city, ?string $state, ?string $zip, ?string $company = ""): array {
         $company = $company ?? "";
+        [$street1, $city, $state, $zip] = self::splitLastLine($street1 ?? "", $city ?? "", $state ?? "", $zip ?? "");
         $city = self::cleanText($city);
+        $state = self::stateCode($state) ?? self::cleanText($state);
         $state = self::cleanText($state);
         [$zip, $plus4In] = self::splitZip($zip);
 
@@ -1082,7 +1292,12 @@ class Standardizer {
 
         switch ($line1["type"]) {
             case "street":
-                $result["street1"] = self::joinParts($line1["number"], $line1["fraction"], $street["pre"], $street["name"], $street["suffix"], $street["post"], $secondaryOnLine1 ? $secondaryText : "");
+                $number = $match["number"] ?? $line1["number"];
+                // Puerto Rico writes A-12 as A12
+                if (in_array($row["State"], ["PR", "VI"]) && preg_match('/^[A-Z]-\d/', $number)) {
+                    $number = str_replace("-", "", $number);
+                }
+                $result["street1"] = self::joinParts($number, $line1["fraction"], $street["pre"], $street["name"], $street["suffix"], $street["post"], $secondaryOnLine1 ? $secondaryText : "");
                 break;
             case "pobox":
                 $result["street1"] = "PO BOX " . $line1["number"];

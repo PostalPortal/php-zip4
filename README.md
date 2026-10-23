@@ -77,6 +77,10 @@ ZIP4::init("/var/lib/zip4/zip4.sqlite", false);                                 
 
 If you replace the ZIP+4 file by dropping and reloading the tables, build them again.
 
+A database built by AddressDatabase's `zipdbgen.py` already has suitable indexes (`zip`,
+`stname_state_zip`, `Index_ZIPCodes_*`) and is used as is. It can be read-only: a file path is
+always opened read-only, and only `createIndexes()` opens it for writing.
+
 ## What it handles
 
 - Pub 28 abbreviations: suffixes (C1), directionals (B), unit designators (C2), plus punctuation
@@ -91,7 +95,19 @@ If you replace the ZIP+4 file by dropping and reloading the tables, build them a
   `#4` in a building with both `APT 4` and `STE 4` isn't guessed.
 - Named units (`UNIT FDA`, `UNIT FDA-OTED`), and a company that is a unit at the address (`U.S. Fish and Wildlife
   Service` → `UNIT USFWS`), which adds the unit to the address
-- Interstates and state routes: `I-15`, `I15`, `IH-15`, `Hwy I-15` → `INTERSTATE 15`; `MT-200`, `SR 200`, `State Hwy 200`
+- Numbered roads in the forms the file uses: `I-15`/`I15`/`IH-15` → `INTERSTATE 15`; `US 12`/`U S Hwy 12`/`United
+  States Highway 12` → `US HIGHWAY 12`; `MT-200`/`Montana Hwy 200` → `MT HIGHWAY 200` (and the other state-route
+  spellings); `CR 5`/`Co Rd 5` → `COUNTY ROAD 5`; `FM 1960`; `FS Rd 4100`/`NFSR 4100` → `FOREST SERVICE ROAD 4100`;
+  township and private roads; `OLD HIGHWAY 10` ↔ `OLD HWY 10`; Indiana-style `N COUNTY ROAD 500 E` → `N 500 E`
+- Suffix abbreviations inside a name spelled out (`S CRK RD` → `S CREEK RD`, `MTN VIEW DR`, `LK SHORE DR`); informal
+  suffixes (`PW`, `CI`, `LA`, `CR`...) when the file confirms them; misspelled suffixes; a suffix typed twice
+- `MLK`, `M L KING` → `MARTIN LUTHER KING JR`
+- Accented letters and look-alike punctuation (`PEÑA` → `PENA`, en dashes)
+- The whole address in the street field (`123 Main St, Helena, MT 59601`), or the last line in the city field;
+  `CITY OF`, spelled-out state names
+- A house number typed twice (`124 124 MAIN ST`) or with its letter apart (`245 A W 29TH ST`); Puerto Rico's `A-12`;
+  a bare trailing unit (`123 MAIN ST 4`); Spanish directionals
+- A single-address record is preferred over the block range around it
 - PO boxes, rural routes and highway contract routes, general delivery, APO/FPO/DPO (`PSC`, `CMR`, `UNIT ... BOX`)
 - Firm records: the firm's +4 only for that firm, and the street's +4 for anyone else at the address
 - Alternate (old or vanity) street names rewritten to the base name
@@ -102,7 +118,7 @@ If you replace the ZIP+4 file by dropping and reloading the tables, build them a
 ## What it doesn't
 
 DPV, LACSLink conversion (it only flags those addresses), SuiteLink, Puerto Rico
-urbanizations, and intersections.
+urbanizations, intersections, and state-only lookups (it needs a ZIP or a city).
 
 ## Tests
 

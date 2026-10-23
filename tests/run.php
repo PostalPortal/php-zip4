@@ -88,6 +88,31 @@ check("then init() accepts it", ZIP4::isInitialized());
 ZIP4::init(zip4FixtureDatabase());
 check("init() creates them by default", ZIP4::standardizer()->missingIndexes() == []);
 
+echo "A database built by AddressDatabase's zipdbgen.py\n";
+$tmp = sys_get_temp_dir() . "/zip4-test-" . getmypid() . ".sqlite";
+if (file_exists($tmp)) {
+    unlink($tmp);
+}
+$built = zip4FixtureDatabase("sqlite:$tmp");
+foreach (['CREATE INDEX "zip" ON "ZIP4" ("ZipCode")', 'CREATE INDEX "stname_state_zip" ON "ZIP4" ("StName", "State", "ZipCode")',
+    'CREATE INDEX Index_ZIPCodes_ZipCode ON ZIPCodes (ZipCode)', 'CREATE INDEX Index_ZIPCodes_State ON ZIPCodes (State)',
+    'CREATE INDEX Index_ZIPCodes_CityStateKey ON ZIPCodes (CityStateKey)'] as $sql) {
+    $built->exec($sql);
+}
+$built = null;
+chmod($tmp, 0444);
+$threw = null;
+try {
+    ZIP4::init($tmp, false);
+} catch (Exception $ex) {
+    $threw = $ex->getMessage();
+}
+check("its indexes are used as they are, on a read-only file", $threw === null && ZIP4::standardizer()->missingIndexes() == [], $threw);
+expect("...and it matches", ZIP4::match("123 N Main St", "", "", "", "59601"), ["verified" => true, "plus4" => "1002"]);
+chmod($tmp, 0644);
+unlink($tmp);
+ZIP4::init(zip4FixtureDatabase());
+
 echo "Text helpers\n";
 check("punctuation", Standardizer::cleanText("123 N. Main St., #4") == "123 N MAIN ST # 4", Standardizer::cleanText("123 N. Main St., #4"));
 check("apostrophes and hyphens", Standardizer::cleanText("12 o'brien rd - rear") == "12 OBRIEN RD REAR", Standardizer::cleanText("12 o'brien rd - rear"));
@@ -101,6 +126,9 @@ check("alpha house numbers", Standardizer::inRange("245A", "245A", "245A", "B") 
         && !Standardizer::inRange("245B", "245A", "245A", "B") && Standardizer::inRange("123A", "0000000100", "0000000199", "B"));
 check("zero-padded unit numbers", Standardizer::inRange("4", "00000004", "00000004", "E") && !Standardizer::inRange("5", "00000004", "00000004", "E"));
 check("an empty range holds nothing", !Standardizer::inRange("1", "", "", "B"));
+check("accents and look-alike dashes", Standardizer::cleanText("Peña Blvd") == "PENA BLVD" && Standardizer::cleanText("12–34 Main St") == "12-34 MAIN ST"
+        && Standardizer::cleanText("Doña Ana Rd") == "DONA ANA RD", [Standardizer::cleanText("Peña Blvd"), Standardizer::cleanText("12–34 Main St")]);
+check("state names and codes", Standardizer::stateCode("montana") == "MT" && Standardizer::stateCode("PR") == "PR" && Standardizer::stateCode("AE") == "AE" && Standardizer::stateCode("XX") === null);
 
 echo "Street addresses\n";
 expect("directional and suffix spelled out", ZIP4::match("123 north main street", "", "helena", "mt", "59601"),
@@ -162,6 +190,42 @@ expect("the company is the unit: name", ZIP4::match("39825 I-15", "", "", "", "5
 expect("no unit or company: the street's +4", ZIP4::match("39825 I-15", "", "", "", "59484"), ["verified" => true, "street1" => "39825 INTERSTATE 15", "plus4" => "8504"]);
 check("company-to-unit names", Standardizer::companyIsUnit("Food and Drug Administration", "FDA") && Standardizer::companyIsUnit("FDA OTED", "FDA-OTED")
         && !Standardizer::companyIsUnit("Smith Hardware", "FDA") && !Standardizer::companyIsUnit("Unit 4 Inc", "4"));
+
+echo "Spellings people use (from AddressDatabase)\n";
+$h = fn($street, $c = "Helena", $st = "MT", $z = "59601") => ZIP4::match($street, "", $c, $st, $z);
+expect("S CRK RD is S CREEK RD", $h("123 S Crk Rd"), ["verified" => true, "street1" => "123 S CREEK RD", "plus4" => "8801"]);
+expect("MTN VIEW DR is MOUNTAIN VIEW DR", $h("123 Mtn View Drive"), ["verified" => true, "street1" => "123 MOUNTAIN VIEW DR"]);
+foreach (["MT-200", "MT 200", "Montana Hwy 200", "MT Highway 200", "MT State Hwy 200"] as $typed) {
+    expect("$typed is MT HIGHWAY 200", $h("1500 $typed"), ["verified" => true, "street1" => "1500 MT HIGHWAY 200", "plus4" => "8804"]);
+}
+foreach (["FS Rd 4100", "FSR 4100", "NFSR 4100", "Forest Rd 4100", "Forest Service Road 4100 Rd"] as $typed) {
+    expect("$typed is FOREST SERVICE ROAD 4100", $h("150 $typed"), ["verified" => true, "street1" => "150 FOREST SERVICE ROAD 4100", "plus4" => "8805"]);
+}
+expect("OLD HIGHWAY 10 is OLD HWY 10 in the file", $h("150 Old Highway 10"), ["verified" => true, "street1" => "150 OLD HWY 10"]);
+expect("E I-90", $h("150 E I-90"), ["verified" => true, "street1" => "150 INTERSTATE 90"]);
+expect("accents", $h("10 Peña Blvd"), ["verified" => true, "street1" => "10 PENA BLVD"]);
+expect("MLK", $h("50 MLK Jr Blvd"), ["verified" => true, "street1" => "50 MARTIN LUTHER KING JR BLVD"]);
+expect("M L KING", $h("50 M L King Jr Blvd"), ["verified" => true, "street1" => "50 MARTIN LUTHER KING JR BLVD"]);
+expect("informal suffix CR for CRK (only because the file has it)", $h("50 Bear Cr"), ["verified" => true, "street1" => "50 BEAR CRK"]);
+expect("informal suffix PW for PKWY", $h("50 Fir Pw"), ["verified" => true, "street1" => "50 FIR PKWY"]);
+expect("...but not rewritten without a match", $h("50 Calle La", "", "", "59601"), ["verified" => false, "normalized" => ["street1" => "50 CALLE LA", "street2" => "", "city" => "HELENA", "state" => "MT", "zip" => "59601"]]);
+expect("misspelled suffix", $h("12 Sunset Cresent", "", "", "59601"), ["verified" => false, "normalized" => ["street1" => "12 SUNSET CRES", "street2" => "", "city" => "HELENA", "state" => "MT", "zip" => "59601"]]);
+expect("suffix typed twice", $h("123 N Main Street St"), ["verified" => true, "street1" => "123 N MAIN ST", "plus4" => "1002"]);
+expect("house number typed twice", $h("124 124 N Main St"), ["verified" => true, "street1" => "124 N MAIN ST"]);
+expect("a single-address record beats the block range it's in", $h("1250 Queens Blvd"), ["verified" => true, "plus4" => "8809"]);
+expect("...and the range still covers its neighbors", $h("1252 Queens Blvd"), ["verified" => true, "plus4" => "8808"]);
+expect("house number letter typed separately", ZIP4::match("245 A W 29th St", "", "New York", "NY", "10001"), ["verified" => true, "street1" => "245A W 29TH ST", "plus4" => "5208"]);
+expect("bare trailing unit", $h("316 N Park Ave 15"), ["verified" => true, "street1" => "316 N PARK AVE APT 15", "plus4" => "4102"]);
+expect("en dash in a Queens-style house number", ZIP4::match("1–2 Last Chance Gulch", "", "", "", "59601"), ["verified" => true, "street1" => "1-2 LAST CHANCE GULCH"]);
+
+echo "Whole addresses in one field\n";
+expect("street, city, state ZIP all on line 1", ZIP4::match("123 N Main St, Helena, MT 59601", "", "", "", ""), ["verified" => true, "street1" => "123 N MAIN ST", "city" => "HELENA", "zip+4" => "59601-1002"]);
+expect("...with a unit, ZIP+4 and USA", ZIP4::match("316 N Park Ave Apt 5, Helena MT 59601-4101, USA", "", "", "", ""), ["verified" => true, "street1" => "316 N PARK AVE APT 5", "plus4" => "4101"]);
+expect("...with the unit after a comma", ZIP4::match("316 N Park Ave, Apt 5, Helena, Montana 59601", "", "", "", ""), ["verified" => true, "street1" => "316 N PARK AVE APT 5"]);
+expect("a unit after a comma isn't a city and state", ZIP4::match("316 N Park Ave, Unit PA", "", "Helena", "MT", "59601"), ["street1" => "316 N PARK AVE UNIT PA"]);
+expect("city, state ZIP in the city field", ZIP4::match("123 N Main St", "", "Helena, MT 59601", "", ""), ["verified" => true, "city" => "HELENA", "state" => "MT", "zip" => "59601"]);
+expect("CITY OF and a spelled-out state", ZIP4::match("123 N Main St", "", "City of Helena", "Montana", "59601"), ["verified" => true, "city" => "HELENA", "state" => "MT"]);
+check("splitLastLine leaves a different state alone", Standardizer::splitLastLine("1 A St, Boise, ID 83702", "", "MT", "") == ["1 A St, Boise, ID 83702", "", "MT", ""]);
 
 echo "Alpha house numbers (Manhattan)\n";
 expect("245A", ZIP4::match("245A W 29th St", "", "new york", "ny", "10001"), ["verified" => true, "street1" => "245A W 29TH ST", "plus4" => "5208"]);
