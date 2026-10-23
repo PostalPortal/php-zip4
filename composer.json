@@ -1,0 +1,20 @@
+{
+    "name": "postalportal/zip4",
+    "description": "Match and standardize US addresses against a local USPS ZIP+4 SQLite database",
+    "type": "library",
+    "license": "MPL-2.0",
+    "keywords": ["usps", "zip+4", "address", "standardization", "pub 28"],
+    "require": {
+        "php": ">=8.1",
+        "ext-pdo": "*",
+        "ext-pdo_sqlite": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "PostalPortal\\ZIP4\\": "src/"
+        }
+    },
+    "scripts": {
+        "test": "php tests/run.php"
+    }
+}
