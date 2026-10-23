@@ -133,10 +133,35 @@ echo "Units\n";
 expect("unit on line 1", ZIP4::match("316 n park avenue apt 5", "", "helena", "mt", "59601"), ["verified" => true, "street1" => "316 N PARK AVE APT 5", "plus4" => "4101"]);
 expect("# on line 2 takes the building's designator", ZIP4::match("316 N Park Ave", "#15", "helena", "mt", "59601"), ["verified" => true, "street1" => "316 N PARK AVE", "street2" => "APT 15", "plus4" => "4102"]);
 expect("no unit: the building's default +4", ZIP4::match("316 N Park Ave", "", "helena", "mt", "59601"), ["verified" => true, "plus4" => "4100"]);
-expect("unit and street on the wrong lines", ZIP4::match("Suite 2", "316 N PARK AVE", "helena", "mt", "59601"), ["verified" => true, "street1" => "316 N PARK AVE", "street2" => "STE 2", "plus4" => "4101"]);
+expect("unit and street on the wrong lines (and STE becomes the building's APT)", ZIP4::match("Suite 2", "316 N PARK AVE", "helena", "mt", "59601"), ["verified" => true, "street1" => "316 N PARK AVE", "street2" => "APT 2", "plus4" => "4101"]);
 expect("ATTN line moves below the street", ZIP4::match("ATTN BOB", "123 N MAIN ST", "Helena", "MT", "59601"), ["verified" => true, "street1" => "123 N MAIN ST", "street2" => "ATTN BOB"]);
 expect("FL unit in a highrise, spelled-out ordinal", ZIP4::match("292 Fifth Ave Fl 4", "", "New York", "NY", "10001"), ["verified" => true, "street1" => "292 5TH AVE FL 4", "plus4" => "4513"]);
 expect("FRNT with no number", ZIP4::match("290 5th avenue front", "", "New York", "NY", "10001"), ["verified" => true, "street1" => "290 5TH AVE FRNT", "plus4" => "4511"]);
+
+foreach (["#456", "UNIT 456", "LOT 456", "Space 456", "SP 456", "Trailer 456", "Apt. 456"] as $typed) {
+    expect("$typed at a trailer park is TRLR 456", ZIP4::match("123 sample road $typed", "", "", "", "59601"), ["verified" => true, "street1" => "123 SAMPLE RD TRLR 456", "plus4" => "7123"]);
+}
+expect("a bare unit number on line 2", ZIP4::match("123 Sample Rd", "456", "", "", "59601"), ["verified" => true, "street2" => "TRLR 456", "plus4" => "7123"]);
+expect("a bare line 2 that isn't a unit here is left alone", ZIP4::match("150 S Main St", "B2", "", "", "59601"), ["verified" => true, "street2" => "B2", "plus4" => "2001"]);
+expect("BLDG isn't a trailer: kept, with the street's +4", ZIP4::match("123 sample road bldg 456", "", "", "", "59601"), ["verified" => true, "street1" => "123 SAMPLE RD BLDG 456", "plus4" => "7100"]);
+expect("a unit that isn't in the file: verified on the street, and says so", ZIP4::match("123 sample road #999", "", "", "", "59601"), ["verified" => true, "street1" => "123 SAMPLE RD # 999", "plus4" => "7100", "message" => "Unit not found at this address"]);
+expect("APT 4 in a building with APT 4 and STE 4", ZIP4::match("500 Broadway St Apt 4", "", "", "", "59601"), ["verified" => true, "street1" => "500 BROADWAY ST APT 4", "plus4" => "7201"]);
+expect("STE 4 there", ZIP4::match("500 Broadway St Ste 4", "", "", "", "59601"), ["verified" => true, "street1" => "500 BROADWAY ST STE 4", "plus4" => "7202"]);
+expect("# 4 there: not guessed", ZIP4::match("500 Broadway St #4", "", "", "", "59601"), ["verified" => true, "street1" => "500 BROADWAY ST # 4", "plus4" => "", "message" => "Unit matches more than one kind of unit here; add the designator"]);
+
+echo "Interstates and named units (Sweet Grass border station)\n";
+foreach (["39825 Interstate 15", "39825 I-15", "39825 I 15", "39825 I15", "39825 IH-15", "39825 Interstate Hwy 15", "39825 Hwy I-15"] as $typed) {
+    expect($typed, ZIP4::match($typed, "", "Sweet Grass", "MT", "59484"), ["verified" => true, "street1" => "39825 INTERSTATE 15", "plus4" => "8504"]);
+}
+expect("Unit FDA", ZIP4::match("39825 I-15 Unit FDA", "", "", "", "59484"), ["verified" => true, "street1" => "39825 INTERSTATE 15 UNIT FDA", "plus4" => "8510"]);
+expect("#FDA", ZIP4::match("39825 I-15 #FDA", "", "", "", "59484"), ["verified" => true, "street1" => "39825 INTERSTATE 15 UNIT FDA"]);
+expect("FDA alone on line 2", ZIP4::match("39825 I-15", "FDA", "", "", "59484"), ["verified" => true, "street2" => "UNIT FDA", "plus4" => "8510"]);
+expect("hyphenated unit name", ZIP4::match("39825 Interstate 15 Unit FDA-OTED", "", "", "", "59484"), ["verified" => true, "street1" => "39825 INTERSTATE 15 UNIT FDA-OTED", "plus4" => "8510"]);
+expect("the company is the unit: acronym", ZIP4::match("39825 I-15", "", "", "", "59484", "U.S. Fish and Wildlife Service"), ["verified" => true, "street1" => "39825 INTERSTATE 15 UNIT USFWS", "plus4" => "8509"]);
+expect("the company is the unit: name", ZIP4::match("39825 I-15", "", "", "", "59484", "FDA"), ["verified" => true, "street1" => "39825 INTERSTATE 15 UNIT FDA", "plus4" => "8510"]);
+expect("no unit or company: the street's +4", ZIP4::match("39825 I-15", "", "", "", "59484"), ["verified" => true, "street1" => "39825 INTERSTATE 15", "plus4" => "8504"]);
+check("company-to-unit names", Standardizer::companyIsUnit("Food and Drug Administration", "FDA") && Standardizer::companyIsUnit("FDA OTED", "FDA-OTED")
+        && !Standardizer::companyIsUnit("Smith Hardware", "FDA") && !Standardizer::companyIsUnit("Unit 4 Inc", "4"));
 
 echo "Alpha house numbers (Manhattan)\n";
 expect("245A", ZIP4::match("245A W 29th St", "", "new york", "ny", "10001"), ["verified" => true, "street1" => "245A W 29TH ST", "plus4" => "5208"]);

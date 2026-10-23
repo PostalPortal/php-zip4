@@ -56,7 +56,7 @@ leading zeros in a spreadsheet. The company is optional; it's only used to give 
 | `zipChanged` | The ZIP given was wrong for this address and was corrected |
 | `spellingCorrected` | The street name was misspelled (one or two typos) and was corrected |
 | `lacsConverted` | USPS has converted this address (usually a rural route) to a city-style one |
-| `message` | Why it wasn't verified |
+| `message` | Why it wasn't verified. On a verified address: a unit that isn't in the file, or `#4` where the building has both APT 4 and STE 4 (no +4 then) |
 | `normalized` | For unverified addresses: `street1`, `street2`, `city`, `state`, `zip` cleaned up as far as possible |
 
 `toArray()` and `json_encode()` give the same fields in snake_case.
@@ -84,8 +84,14 @@ If you replace the ZIP+4 file by dropping and reloading the tables, build them a
   `124 MAIN ST` with both `N MAIN ST` and `S MAIN ST` in the ZIP is left unverified rather than guessed.
 - Spelled-out numbered streets (`Fifth`, `Twenty-Ninth`), and `SAINT`/`ST`, `MOUNT`/`MT`, `HWY`/`HIGHWAY`, county roads, US and state highways
 - Alpha house numbers (`245A`), fractional (`123 1/2`), Queens-style (`12-34`), Wisconsin grid (`N123W4567`)
-- Units on either line, the unit and street on the wrong lines, an ATTN or C/O line above the street,
-  highrise unit ranges and default records, and the building's own designator (`# 4` → `APT 4`)
+- Units on either line, including a bare `456` or `FDA` on line 2 when that's one of the units there;
+  the unit and street on the wrong lines; an ATTN or C/O line above the street; highrise unit ranges and default records
+- The file's designator for units people name loosely: `#`, `APT`, `UNIT`, `STE`, `LOT`, `SPC`/`SP`, `TRLR` are
+  interchangeable, so `#456` at a trailer park comes back `TRLR 456`. `BLDG`, `FL`, `RM` and the rest have to match.
+  `#4` in a building with both `APT 4` and `STE 4` isn't guessed.
+- Named units (`UNIT FDA`, `UNIT FDA-OTED`), and a company that is a unit at the address (`U.S. Fish and Wildlife
+  Service` → `UNIT USFWS`), which adds the unit to the address
+- Interstates and state routes: `I-15`, `I15`, `IH-15`, `Hwy I-15` → `INTERSTATE 15`; `MT-200`, `SR 200`, `State Hwy 200`
 - PO boxes, rural routes and highway contract routes, general delivery, APO/FPO/DPO (`PSC`, `CMR`, `UNIT ... BOX`)
 - Firm records: the firm's +4 only for that firm, and the street's +4 for anyone else at the address
 - Alternate (old or vanity) street names rewritten to the base name

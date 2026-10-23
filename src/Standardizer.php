@@ -106,9 +106,17 @@ class Standardizer {
     const SECONDARY_WITH_ID = [
         "APT" => ["APARTMENT", "APTS"], "BLDG" => ["BUILDING", "BLD"], "DEPT" => ["DEPARTMENT"], "FL" => ["FLOOR", "FLR"],
         "HNGR" => ["HANGAR", "HANGER"], "KEY" => [], "LOT" => [], "PIER" => [], "RM" => ["ROOM"], "SLIP" => [],
-        "SPC" => ["SPACE"], "STOP" => [], "STE" => ["SUITE", "SUIT"], "TRLR" => ["TRAILER"], "UNIT" => [],
+        "SPC" => ["SPACE", "SP"], "STOP" => [], "STE" => ["SUITE", "SUIT"], "TRLR" => ["TRAILER"], "UNIT" => ["UNT"],
         "#" => ["NO", "NUM", "NUMBER"]
     ];
+
+    /**
+     * Designators people use interchangeably for "which one of the units here". When the unit number
+     * is in the file's range for one of these, the file's designator wins: #456 or LOT 456 at a
+     * trailer park whose units are TRLR becomes TRLR 456. The others (BLDG, FL, RM...) mean something
+     * specific, so they have to match the file's designator.
+     */
+    const INTERCHANGEABLE_SECONDARY = ["#", "APT", "UNIT", "STE", "LOT", "SPC", "TRLR"];
 
     /** Pub 28 Appendix C2, designators that stand alone (some take an optional number) */
     const SECONDARY_WITHOUT_ID = [
@@ -270,6 +278,11 @@ class Standardizer {
         return self::$secondaryLookup[$word] ?? null;
     }
 
+    /** After a designator that needs one, a unit ID can be anything short: 4, 4B, B, FDA, FDA-OTED */
+    private static function isDesignatedUnitId(string $t): bool {
+        return (bool) preg_match('/^[0-9A-Z][0-9A-Z\-]{0,11}$/', $t);
+    }
+
     private static function isUnitId(string $t): bool {
         return preg_match('/^[0-9A-Z][0-9A-Z\-]{0,7}$/', $t) && (preg_match('/\d/', $t) || strlen($t) <= 2);
     }
@@ -289,7 +302,7 @@ class Standardizer {
         [$designator, $needsId] = $sec;
         $id = "";
         $used = 1;
-        if (isset($tokens[1]) && self::isUnitId($tokens[1]) && self::suffixAbbr($tokens[1]) === null) {
+        if (isset($tokens[1]) && ($needsId ? self::isDesignatedUnitId($tokens[1]) : self::isUnitId($tokens[1])) && self::suffixAbbr($tokens[1]) === null) {
             $id = $tokens[1];
             $used = 2;
         } else if ($needsId) {
@@ -474,6 +487,14 @@ class Standardizer {
         $county = preg_replace('/^(CR|CO RD|CNTY RD|COUNTY RD|CO ROAD|CNTY ROAD) /', "COUNTY ROAD ", $joined);
         $highway = preg_replace('/^(US HWY|US HIGHWAY|US) (\d+)/', 'US HIGHWAY $2', preg_replace('/^(HWY|HIWAY|HGWY|HY) /', "HIGHWAY ", $joined));
         $state = preg_replace('/^(STATE HWY|ST HWY|SH|STATE HIGHWAY) /', "STATE HIGHWAY ", $joined);
+        // I-15, I 15, I15, IH-15, INTERSTATE HWY 15, HWY I-15: the file says INTERSTATE 15
+        if (preg_match('/^(?:HWY |HIGHWAY )?(?:I|IH|INTERSTATE|INTERSTATE HWY|INTERSTATE HIGHWAY|INTERSTATE ROUTE)[ \-]?(\d+)$/', $joined, $m)) {
+            $spellings[] = "INTERSTATE $m[1]";
+        }
+        // MT-200, MT HWY 200, SR 200, STATE HWY 200: the file has one of these depending on the state
+        if (preg_match('/^(?:[A-Z]{2}|STATE|ST)[ \-]?(?:HWY |HIGHWAY |RT |RTE |ROUTE |RD |ROAD )?(\d+)$/', $joined, $m) && !preg_match('/^(US|CO|CR|IH)\b/', $joined)) {
+            array_push($spellings, "STATE HIGHWAY $m[1]", "HIGHWAY $m[1]", "STATE ROUTE $m[1]", "STATE ROAD $m[1]");
+        }
         $route = preg_replace('/^(SR|ST RT|ST RTE|STATE RT|STATE RTE) /', "STATE ROUTE ", $joined);
         array_push($spellings, $county, $highway, $state, $route);
         return array_values(array_unique($spellings));
@@ -543,7 +564,8 @@ class Standardizer {
             $l = self::numberParts($low);
             $h = self::numberParts($high);
             if ($n === null || $l === null || $h === null) {
-                if (ltrim($num, "0") === ltrim($low, "0") || ltrim($num, "0") === ltrim($high, "0")) {
+                $bare = fn($x) => ltrim(str_replace("-", "", $x), "0");
+                if ($bare($num) === $bare($low) || $bare($num) === $bare($high)) {
                     return true;
                 }
                 continue;
@@ -755,18 +777,26 @@ class Standardizer {
         }
         $rowHasUnits = ($row["AddressSecLowNumber"] ?? "") !== "" || ($row["AddressSecHighNumber"] ?? "") !== "";
         $unitInRange = false;
+        $unitFromCompany = false;
         if ($secondary !== null) {
             if ($rowHasUnits) {
-                $unitInRange = $secondary["id"] !== "" ? self::inRange($secondary["id"], $row["AddressSecLowNumber"], $row["AddressSecHighNumber"], $row["AddressSecOddEven"])
-                        : $row["AddressSecAbbr"] === $secondary["designator"]; // FRNT, REAR...
+                $unitInRange = self::designatorFits($secondary["designator"], $row["AddressSecAbbr"])
+                        && ($secondary["id"] !== "" ? self::inRange($secondary["id"], $row["AddressSecLowNumber"], $row["AddressSecHighNumber"], $row["AddressSecOddEven"])
+                        : $row["AddressSecAbbr"] === $secondary["designator"]); // FRNT, REAR...
                 if ($unitInRange) {
-                    $score += ($row["AddressSecAbbr"] === $secondary["designator"] || $secondary["designator"] === "#") ? 6 : 4;
-                } else {
+                    $score += ($row["AddressSecAbbr"] === $secondary["designator"]) ? 7 : 6;
+                } else if (empty($secondary["implicit"])) {
                     $score -= 2;
                 }
             } else {
                 $score += ($row["RecordType"] == "H" ? 2 : 1);
             }
+        } else if ($rowHasUnits && $company !== "" && $row["AddressSecLowNumber"] === $row["AddressSecHighNumber"]
+                && self::companyIsUnit($company, $row["AddressSecLowNumber"])) {
+            // No unit typed, but the company is the unit: the FDA at a border station whose units are named for agencies
+            $unitInRange = true;
+            $unitFromCompany = true;
+            $score += 6;
         } else {
             // No unit typed: a building's default record beats the plain street record
             $score += $rowHasUnits ? -3 : ($row["RecordType"] == "H" ? 2 : 1);
@@ -774,7 +804,42 @@ class Standardizer {
         if (($row["BaseAlternateCode"] ?? "B") == "B") {
             $score += 1;
         }
-        return ["score" => $score, "inRange" => $inRange, "unitInRange" => $unitInRange, "firmMatched" => $firmMatched];
+        return ["score" => $score, "inRange" => $inRange, "unitInRange" => $unitInRange, "unitFromCompany" => $unitFromCompany, "firmMatched" => $firmMatched];
+    }
+
+    /** Whether a typed unit designator can mean the file's ("#" can mean anything; APT, LOT, TRLR... each other). */
+    public static function designatorFits(string $typed, ?string $file): bool {
+        $file = $file ?? "";
+        return $typed === $file || $typed === "#" || $file === ""
+                || (in_array($typed, self::INTERCHANGEABLE_SECONDARY) && in_array($file, self::INTERCHANGEABLE_SECONDARY));
+    }
+
+    /**
+     * Whether a company name is a unit's name: "FDA" for unit FDA, "Food and Drug Administration" (FDA),
+     * "U.S. Fish and Wildlife Service" (USFWS), "FDA OTED" (FDA-OTED). Only for names, not unit numbers.
+     */
+    public static function companyIsUnit(string $company, ?string $unit): bool {
+        $unit = preg_replace('/[^A-Z0-9]/', "", strtoupper($unit ?? ""));
+        if (strlen($unit) < 2 || preg_match('/\d/', $unit)) {
+            return false;
+        }
+        $words = array_values(array_filter(explode(" ", preg_replace('/[^A-Z0-9 ]/', " ", self::cleanText($company))),
+                        fn($w) => $w !== "" && !in_array($w, ["AND", "OF", "THE", "FOR", "&", "INC", "LLC"])));
+        if (count($words) == 0) {
+            return false;
+        }
+        $joined = implode("", $words);
+        $initials = implode("", array_map(fn($w) => $w[0], $words));
+        // Initials, keeping short words whole: U.S. => US
+        $initialsKeepingShort = implode("", array_map(fn($w) => strlen($w) <= 2 ? $w : $w[0], $words));
+        $candidates = [$joined, $initials, $initialsKeepingShort];
+        // "U.S. Food and Drug Administration" is the FDA
+        foreach ([$initials, $initialsKeepingShort] as $a) {
+            if (str_starts_with($a, "US") && strlen($a) > 3) {
+                $candidates[] = substr($a, 2);
+            }
+        }
+        return in_array($unit, $candidates, true);
     }
 
     /** Whether a company name is the firm on a firm record ("SMITH SCHOOL" / "Smith School Inc"). */
@@ -843,6 +908,7 @@ class Standardizer {
 
         // Best scoring row for each distinct street (same name in a different ZIP counts as different)
         $streets = [];
+        $unitHits = [];
         foreach ($rows as $row) {
             foreach ($tries as [$cand, $secondary, $likely]) {
                 if (!in_array($row["StName"], $cand["names"], true)) {
@@ -851,11 +917,20 @@ class Standardizer {
                 $number = $parsed["number"];
                 $s = self::scoreRow($row, $cand, $number, $secondary, $likely, $company);
                 $key = implode("|", [$row["ZipCode"], $row["StPreDirAbbr"], $row["StName"], $row["StSuffixAbbr"], $row["StPostDirAbbr"]]);
+                if ($s["unitInRange"] && $s["inRange"]) {
+                    $unitHits[$key][$row["AddressSecAbbr"] . "|" . $row["Plus4Low"]] = $row["AddressSecAbbr"];
+                }
                 if (!isset($streets[$key]) || $s["score"] > $streets[$key]["score"]) {
                     $streets[$key] = $s + ["row" => $row, "cand" => $cand, "secondary" => $secondary, "fuzzy" => $fuzzy];
                 }
             }
         }
+        foreach ($streets as $key => &$st) {
+            // "# 4" in a building with both APT 4 and STE 4 (and different +4s): can't say which
+            $kinds = array_unique($unitHits[$key] ?? []);
+            $st["unitAmbiguous"] = $st["unitInRange"] && count($kinds) > 1 && !in_array($st["secondary"]["designator"] ?? "", $kinds, true);
+        }
+        unset($st);
         uasort($streets, fn($a, $b) => $b["score"] <=> $a["score"]);
         $ranked = array_values($streets);
         $best = $ranked[0];
@@ -909,8 +984,12 @@ class Standardizer {
             "zip_changed" => false, "fuzzy" => false, "lacs" => false, "message" => ""
         ];
 
-        // The unit on line 2 counts for matching, if line 1 doesn't have one
+        // The unit on line 2 counts for matching, if line 1 doesn't have one. A bare "456" or "FDA" there
+        // only counts if it turns out to be one of the units at the address.
         $unitOnLine2 = $line2["type"] == "secondary" ? $line2["secondary"] : null;
+        if ($line2["type"] == "other" && preg_match('/^[0-9A-Z][0-9A-Z\-]{0,11}$/', $line2["text"])) {
+            $unitOnLine2 = ["designator" => "#", "id" => $line2["text"], "text" => "# " . $line2["text"], "implicit" => true];
+        }
         if ($unitOnLine2 !== null && $line1["type"] == "street") {
             foreach ($line1["readings"] as &$r) {
                 $r["secondary"] ??= $unitOnLine2;
@@ -978,16 +1057,28 @@ class Standardizer {
 
         $secondary = $match["secondary"] ?? null;
         $secondaryText = "";
+        $unitNote = "";
+        if ($secondary !== null && !empty($secondary["implicit"]) && !$match["unitInRange"]) {
+            // A bare "456" on line 2 that isn't a unit here: leave line 2 as it was
+            $secondary = null;
+        }
         if ($secondary !== null) {
-            // "# 4" or "UNIT 4" where the building's units are APTs: use the building's designator
+            // "# 4" or "LOT 4" where the units are TRLRs: use the file's designator, unless # fits more than one
             $designator = $secondary["designator"];
-            if ($match["unitInRange"] && $row["AddressSecAbbr"] !== "" && in_array($designator, ["#", "APT", "UNIT"])) {
+            if ($match["unitInRange"] && $row["AddressSecAbbr"] !== "" && !$match["unitAmbiguous"]) {
                 $designator = $row["AddressSecAbbr"];
             }
             $head = trim($secondary["designator"] . " " . $secondary["id"]);
             $secondaryText = trim("$designator $secondary[id]") . substr($secondary["text"], strlen($head));
+            if (!$match["unitInRange"] && $match["inRange"]) {
+                $unitNote = "Unit not found at this address";
+            }
+        } else if ($match["unitFromCompany"]) {
+            // The company is one of the units here: add the unit, since the +4 depends on it
+            $secondaryText = trim($row["AddressSecAbbr"] . " " . $row["AddressSecLowNumber"]);
+            $secondary = ["designator" => $row["AddressSecAbbr"], "id" => $row["AddressSecLowNumber"], "text" => $secondaryText];
         }
-        $secondaryOnLine1 = $secondary !== null && $secondary !== $unitOnLine2;
+        $secondaryOnLine1 = $secondary !== null && ($secondary !== $unitOnLine2 || $match["unitFromCompany"]);
 
         switch ($line1["type"]) {
             case "street":
@@ -1016,7 +1107,8 @@ class Standardizer {
         $result["lacs"] = ($row["LACSStatus"] ?? "") == "L";
         if ($result["match"] == self::MATCH_EXACT) {
             $result["carrier_route"] = $row["CarrierRoute"];
-            if ($row["Plus4Low"] !== "" && $row["Plus4Low"] === $row["Plus4High"] && ($row["RecordType"] != "F" || $match["firmMatched"])) {
+            $result["message"] = $match["unitAmbiguous"] ? "Unit matches more than one kind of unit here; add the designator" : $unitNote;
+            if ($row["Plus4Low"] !== "" && $row["Plus4Low"] === $row["Plus4High"] && ($row["RecordType"] != "F" || $match["firmMatched"]) && !$match["unitAmbiguous"]) {
                 $result["plus4"] = $row["Plus4Low"];
             }
         } else {

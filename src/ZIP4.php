@@ -83,7 +83,7 @@ final class ZIP4 {
         $r = self::standardizer()->standardize($street1, $street2, $city, $state, $zip, $company);
         if ($r["match"] == Standardizer::MATCH_EXACT) {
             return new AddressMatch(true, $r["street1"], $r["street2"], $r["city"], $r["state"], $r["zip"], $r["plus4"],
-                    $r["carrier_route"], $r["record_type"], $r["match"], $r["zip_changed"], $r["fuzzy"], $r["lacs"]);
+                    $r["carrier_route"], $r["record_type"], $r["match"], $r["zip_changed"], $r["fuzzy"], $r["lacs"], $r["message"]);
         }
         $normalized = ["street1" => $r["street1"], "street2" => $r["street2"], "city" => $r["city"], "state" => $r["state"], "zip" => $r["zip"]];
         return new AddressMatch(false, $street1 ?? "", $street2 ?? "", $city ?? "", $state ?? "", $zip ?? "", "",

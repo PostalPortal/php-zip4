@@ -42,7 +42,7 @@ final class AddressMatch implements JsonSerializable {
             public readonly bool $spellingCorrected = false,
             /** USPS has converted this address (usually a rural route) to a new city-style one; it may need updating */
             public readonly bool $lacsConverted = false,
-            /** Why it wasn't verified */
+            /** Why it wasn't verified; on a verified address, a problem with the unit ("Unit not found at this address") */
             public readonly string $message = "",
             /** For an unverified address: ["street1", "street2", "city", "state", "zip"] cleaned up as far as possible */
             public readonly ?array $normalized = null
