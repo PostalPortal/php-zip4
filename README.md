@@ -1,13 +1,17 @@
-# postalportal/zip4
+# php-zip4
 
-Matches and standardizes US addresses against a local USPS ZIP+4 database in SQLite (the
-`ZIP4` and `ZIPCodes` tables from zip-codes.com's ZIP+4 product). There are no network calls
-and nothing to pay per lookup.
+Matches and standardizes US addresses against a local USPS ZIP+4 database
+(SQLite, built from zip-codes.com's ZIP+4 product using the bin/zip4-build script).
+There are no network calls and nothing to pay per lookup.
 
 It's for cleaning up address data, not CASS certification. It finds the street in the ZIP (or
 in the city's other ZIPs) and fixes the directionals, suffix, ZIP, city and spelling. When the
 house number falls in a known range it also fills in the +4 and carrier route. It doesn't do
 DPV, so it can't tell you whether that exact house exists.
+
+This code was mostly written by an AI, but using a fully human-written address cleanup project
+as a reference for finding and handling edge cases that were encountered
+during processing of millions of real street addresses.
 
 ## Install
 
@@ -16,6 +20,21 @@ composer require postalportal/zip4
 ```
 
 Needs PHP 8.1+ with `pdo_sqlite`. There are no other dependencies.
+
+## Building the database
+
+`zip4-build` makes the SQLite file from zip-codes.com's downloads (needs `ext-zip`):
+
+```sh
+vendor/bin/zip4-build zip4-plus-product.zip zip-codes-standard.zip /var/lib/zip4/zip4.sqlite
+```
+
+Pass the ZIP+4 product archive (i.e. zip with a `ZIP4-XX.zip` for each state inside), the 5-digit product
+archive (`zip-codes-database-STANDARD.csv`, and the multi-county CSV if there is one), or the
+loose `ZIP4-XX.zip` files and CSVs. Give them all in one run, or run it once for each; the
+tables for whatever you give it are rebuilt and the rest of the file is left alone.
+`--states=MT,WY` makes a smaller file for testing. Each state's zip is unpacked to the temp
+directory while it's read (`--tmp=DIR`), so leave at least 1 GB free there.
 
 ## Use
 

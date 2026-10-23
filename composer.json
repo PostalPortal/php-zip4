@@ -9,12 +9,16 @@
         "ext-pdo": "*",
         "ext-pdo_sqlite": "*"
     },
+    "suggest": {
+        "ext-zip": "To build the database with bin/zip4-build"
+    },
+    "bin": ["bin/zip4-build"],
     "autoload": {
         "psr-4": {
             "PostalPortal\\ZIP4\\": "src/"
         }
     },
     "scripts": {
-        "test": "php tests/run.php"
+        "test": ["php tests/run.php", "php tests/build.php"]
     }
 }
