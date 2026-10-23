@@ -408,16 +408,16 @@ class Standardizer {
             return [];
         }
         $out = [];
-        $preOptions = [["", 0]];
+        $preOptions = [["", 0, ""]];
         if ($n > 1 && self::directionalAbbr($tokens[0]) !== null) {
-            $preOptions[] = [self::directionalAbbr($tokens[0]), 1];
+            $preOptions[] = [self::directionalAbbr($tokens[0]), 1, $tokens[0]];
         }
-        foreach ($preOptions as [$pre, $start]) {
-            $postOptions = [["", $n]];
+        foreach ($preOptions as [$pre, $start, $preWord]) {
+            $postOptions = [["", $n, ""]];
             if ($n - $start > 1 && self::directionalAbbr($tokens[$n - 1]) !== null) {
-                $postOptions[] = [self::directionalAbbr($tokens[$n - 1]), $n - 1];
+                $postOptions[] = [self::directionalAbbr($tokens[$n - 1]), $n - 1, $tokens[$n - 1]];
             }
-            foreach ($postOptions as [$post, $end]) {
+            foreach ($postOptions as [$post, $end, $postWord]) {
                 $suffixOptions = [["", $end]];
                 if ($end - $start > 1 && self::suffixAbbr($tokens[$end - 1]) !== null) {
                     $suffixOptions[] = [self::suffixAbbr($tokens[$end - 1]), $end - 1];
@@ -427,7 +427,8 @@ class Standardizer {
                     if (count($name) == 0) {
                         continue;
                     }
-                    $out[] = ["pre" => $pre, "name" => implode(" ", $name), "suffix" => $suffix, "post" => $post, "names" => self::nameSpellings($name)];
+                    $out[] = ["pre" => $pre, "name" => implode(" ", $name), "suffix" => $suffix, "post" => $post,
+                        "preWord" => $preWord, "postWord" => $postWord, "names" => self::nameSpellings($name)];
                 }
             }
         }
@@ -460,6 +461,14 @@ class Standardizer {
             $abbreviated[] = $reverse[$num] ?? $num;
         }
         $spellings = [implode(" ", $words), implode(" ", $expanded), implode(" ", $abbreviated)];
+        // "N SLOPE" typed for the street named NORTH SLOPE (and "BOULDER W" for BOULDER WEST)
+        $full = ["N" => "NORTH", "S" => "SOUTH", "E" => "EAST", "W" => "WEST", "NE" => "NORTHEAST", "NW" => "NORTHWEST", "SE" => "SOUTHEAST", "SW" => "SOUTHWEST"];
+        if (count($words) > 1 && (isset($full[$words[0]]) || isset($full[end($words)]))) {
+            $w = $words;
+            $w[0] = $full[$w[0]] ?? $w[0];
+            $w[count($w) - 1] = $full[$w[count($w) - 1]] ?? $w[count($w) - 1];
+            $spellings[] = implode(" ", $w);
+        }
         // County roads: "CR 5", "CO RD 5", "COUNTY RD 5" all mean COUNTY ROAD 5
         $joined = implode(" ", $words);
         $county = preg_replace('/^(CR|CO RD|CNTY RD|COUNTY RD|CO ROAD|CNTY ROAD) /', "COUNTY ROAD ", $joined);
@@ -484,14 +493,12 @@ class Standardizer {
                 return $p["secondary"]["text"];
             case "street":
                 $reading = $p["readings"][0];
-                $c = self::streetCandidates($reading["street"]);
-                // The reading that uses the most of the standard parts: the last generated
+                // Without the database, NORTH SLOPE RD and NORTH MAIN ST look the same, so a spelled-out
+                // directional stays spelled out; only N or N. is treated as one
+                $c = array_values(array_filter(self::streetCandidates($reading["street"]), fn($x) => strlen($x["preWord"]) <= 2 && strlen($x["postWord"]) <= 2));
+                // The reading that uses the most of the standard parts
                 usort($c, fn($a, $b) => (($b["pre"] != "") + ($b["suffix"] != "") + ($b["post"] != "")) <=> (($a["pre"] != "") + ($a["suffix"] != "") + ($a["post"] != "")));
                 $street = $c[0];
-                // "EAST WEST HWY", "NORTH ST": don't abbreviate a directional that's the whole name's other half
-                if ($street["pre"] != "" && self::directionalAbbr($street["name"]) !== null) {
-                    $street = ["pre" => ""] + ["name" => $reading["street"][0] . " " . $street["name"]] + $street;
-                }
                 return self::joinParts($p["number"], $p["fraction"], $street["pre"], $street["name"], $street["suffix"], $street["post"], $reading["secondary"]["text"] ?? "");
             default:
                 return $p["text"];
@@ -723,13 +730,23 @@ class Standardizer {
             $typed = $cand[$key] ?? "";
             $have = $row[$col] ?? "";
             if ($typed === $have) {
-                $score += ($typed === "" ? 0 : 2);
+                // A typed N is a directional; a typed NORTH might be the name (NORTH SLOPE RD), so it earns nothing here
+                $spelledOut = strlen($cand[$key . "Word"] ?? "") > 2;
+                $score += ($typed === "" || $spelledOut ? 0 : 2);
             } else if ($typed !== "" && $have !== "") {
                 $score -= $wrong;
             } else if ($typed !== "") {
                 $score -= 3;
             } else {
                 $score -= 1;
+            }
+        }
+        // ...and when NORTH was kept in the name and the street's name does start with it, that's the 2 instead
+        $nameWords = explode(" ", $cand["name"]);
+        foreach ([[$nameWords[0], "pre", "StPreDirAbbr", fn($n) => explode(" ", $n)[0]], [end($nameWords), "post", "StPostDirAbbr", fn($n) => substr($n, strrpos(" $n", " "))]] as [$word, $key, $col, $edge]) {
+            if (count($nameWords) > 1 && strlen($word) > 2 && self::directionalAbbr($word) !== null && ($cand[$key] ?? "") === ""
+                    && ($row[$col] ?? "") === "" && $edge($row["StName"]) === $word) {
+                $score += 2;
             }
         }
         $inRange = $number !== "" && self::inRange($number, $row["AddressPrimaryLowNumber"], $row["AddressPrimaryHighNumber"], $row["AddressPrimaryEvenOdd"]);

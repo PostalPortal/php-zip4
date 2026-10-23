@@ -119,6 +119,16 @@ expect("deleted (Action D) records are ignored", ZIP4::match("210 N Main St", ""
         ["verified" => false, "match_level" => "street", "street1" => "210 N Main St", "normalized" => ["street1" => "210 N MAIN ST", "street2" => "", "city" => "HELENA", "state" => "MT", "zip" => "59601"]]);
 expect("ZIP+4 typed in is replaced by the right one", ZIP4::match("123 N MAIN ST", "", "Helena", "MT", "59601-9999"), ["verified" => true, "zip" => "59601", "plus4" => "1002"]);
 
+echo "Directional words in street names\n";
+expect("NORTH SLOPE RD is a name, not N SLOPE RD", ZIP4::match("1234 North Slope Road", "", "East Helena", "MT", "59635"), ["verified" => true, "street1" => "1234 NORTH SLOPE RD", "plus4" => "6201"]);
+expect("N SLOPE RD typed for it still matches", ZIP4::match("1234 N Slope Rd", "", "East Helena", "MT", "59635"), ["verified" => true, "street1" => "1234 NORTH SLOPE RD"]);
+expect("number out of range keeps the name", ZIP4::match("9999 North Slope Road", "", "East Helena", "MT", "59635"), ["match_level" => "street", "normalized" => ["street1" => "9999 NORTH SLOPE RD", "street2" => "", "city" => "EAST HELENA", "state" => "MT", "zip" => "59635"]]);
+expect("both streets in the ZIP: spelled out means the name", ZIP4::match("1234 NORTH SLOPE ROAD", "", "Helena", "MT", "59601"), ["verified" => true, "street1" => "1234 NORTH SLOPE RD", "plus4" => "6201"]);
+expect("both streets in the ZIP: N means the directional", ZIP4::match("1234 N. Slope Rd", "", "Helena", "MT", "59601"), ["verified" => true, "street1" => "1234 N SLOPE RD", "plus4" => "6301"]);
+expect("a street that isn't in the file isn't abbreviated into a different name", ZIP4::match("55 North Ridge Road", "", "Helena", "MT", "59601"), ["verified" => false, "normalized" => ["street1" => "55 NORTH RIDGE RD", "street2" => "", "city" => "HELENA", "state" => "MT", "zip" => "59601"]]);
+expect("...but N. is still a directional there", ZIP4::match("55 N. Ridge Road", "", "Helena", "MT", "59601"), ["verified" => false, "normalized" => ["street1" => "55 N RIDGE RD", "street2" => "", "city" => "HELENA", "state" => "MT", "zip" => "59601"]]);
+expect("EAST WEST HWY stays whole", ZIP4::match("10 East West Highway", "", "Helena", "MT", "59601"), ["verified" => false, "normalized" => ["street1" => "10 EAST WEST HWY", "street2" => "", "city" => "HELENA", "state" => "MT", "zip" => "59601"]]);
+
 echo "Units\n";
 expect("unit on line 1", ZIP4::match("316 n park avenue apt 5", "", "helena", "mt", "59601"), ["verified" => true, "street1" => "316 N PARK AVE APT 5", "plus4" => "4101"]);
 expect("# on line 2 takes the building's designator", ZIP4::match("316 N Park Ave", "#15", "helena", "mt", "59601"), ["verified" => true, "street1" => "316 N PARK AVE", "street2" => "APT 15", "plus4" => "4102"]);
