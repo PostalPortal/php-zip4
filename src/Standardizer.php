@@ -49,7 +49,10 @@ class Standardizer {
     const SUFFIX_MISSPELLINGS = [
         "LN" => ["LANES"], "CT" => ["CRT"], "HTS" => ["HGTS", "HEIGHT"], "TPKE" => ["TPK", "TRPK"], "PR" => ["PRARIE"],
         "CSWY" => ["CAUSWAY"], "CRES" => ["CRECENT", "CRESENT", "CRSCNT"], "XING" => ["CRSSING"], "HVN" => ["HAVN"],
-        "PLNS" => ["PLAINES"], "STRA" => ["STRAVE"]
+        "PLNS" => ["PLAINES"], "STRA" => ["STRAVE"],
+        "ST" => ["STRET", "STEET", "SREET", "STREE", "STRRET", "STRETT", "STREEET"], "TER" => ["TERRANCE", "TERACE", "TERRASE", "TERRCE"],
+        "PKWY" => ["PRKWY", "PRKY", "PWKY", "PARKWAYY"], "BLVD" => ["BLV", "BLVRD", "BLDV", "BOULAVARD", "BOULEVERD", "BULEVARD", "BOULVARD"],
+        "AVE" => ["AVNEUE", "AVENEU", "AVEUNE"], "DR" => ["DRVIE", "DIRVE", "DRIEV"], "CIR" => ["CIRLCE", "CIRCEL", "CRICLE"]
     ];
 
     /**
@@ -57,9 +60,15 @@ class Standardizer {
      * their own ("CALLE LA"), so they're only tried as suffixes when matching against the file.
      */
     const SUFFIX_INFORMAL = [
-        "PKWY" => ["PW"], "CIR" => ["CI"], "CMN" => ["CM"], "BLVD" => ["BL"], "TER" => ["TE"], "LOOP" => ["LP"],
-        "LN" => ["LA"], "PARK" => ["PK"], "TRL" => ["TR"], "CRK" => ["CK", "CR"]
+        "PW" => ["PKWY"], "CI" => ["CIR"], "CM" => ["CMN"], "BL" => ["BLVD"], "TE" => ["TER"], "LP" => ["LOOP"],
+        "LA" => ["LN"], "PK" => ["PARK"], "TR" => ["TRL"], "CK" => ["CRK"], "CR" => ["CRK", "CIR"], "CL" => ["CT", "CIR"],
+        "WEY" => ["WAY"]
     ];
+
+    /** Windows-1252 bytes 0x80-0x9F that aren't Latin-1, for input that isn't UTF-8 (PostalMate exports, old Excel) */
+    const CP1252 = [0x80 => "\u{20AC}", 0x8A => "\u{0160}", 0x8C => "\u{0152}", 0x8E => "\u{017D}", 0x91 => "\u{2018}", 0x92 => "\u{2019}",
+        0x93 => "\u{201C}", 0x94 => "\u{201D}", 0x96 => "\u{2013}", 0x97 => "\u{2014}", 0x9A => "\u{0161}", 0x9C => "\u{0153}",
+        0x9E => "\u{017E}", 0x9F => "\u{0178}"];
 
     const STATE_NAMES = [
         "ALABAMA" => "AL", "ALASKA" => "AK", "ARIZONA" => "AZ", "ARKANSAS" => "AR", "CALIFORNIA" => "CA", "COLORADO" => "CO",
@@ -155,9 +164,10 @@ class Standardizer {
 
     /** Pub 28 Appendix C2, designators that need a unit number after them */
     const SECONDARY_WITH_ID = [
-        "APT" => ["APARTMENT", "APTS"], "BLDG" => ["BUILDING", "BLD"], "DEPT" => ["DEPARTMENT"], "FL" => ["FLOOR", "FLR"],
+        "APT" => ["APARTMENT", "APTS", "APTO", "APARTAMENTO"], "BLDG" => ["BUILDING", "BLD", "EDIF", "EDIFICIO"], "DEPT" => ["DEPARTMENT"], "FL" => ["FLOOR", "FLR", "PISO"],
         "HNGR" => ["HANGAR", "HANGER"], "KEY" => [], "LOT" => [], "PIER" => [], "RM" => ["ROOM"], "SLIP" => [],
         "SPC" => ["SPACE", "SP"], "STOP" => [], "STE" => ["SUITE", "SUIT"], "TRLR" => ["TRAILER"], "UNIT" => ["UNT"],
+        "PMB" => [],
         "#" => ["NO", "NUM", "NUMBER"]
     ];
 
@@ -171,7 +181,7 @@ class Standardizer {
 
     /** Pub 28 Appendix C2, designators that stand alone (some take an optional number) */
     const SECONDARY_WITHOUT_ID = [
-        "BSMT" => ["BASEMENT"], "FRNT" => ["FRONT"], "LBBY" => ["LOBBY"], "LOWR" => ["LOWER"], "OFC" => ["OFFICE"],
+        "BSMT" => ["BASEMENT"], "FRNT" => ["FRONT"], "LBBY" => ["LOBBY"], "LOWR" => ["LOWER"], "OFC" => ["OFFICE", "OFICINA"],
         "PH" => ["PENTHOUSE"], "REAR" => [], "SIDE" => [], "UPPR" => ["UPPER"]
     ];
 
@@ -197,6 +207,7 @@ class Standardizer {
 
     private static ?array $suffixLookup = null;
     private static ?array $informalSuffixLookup = null;
+    private static array $suffixOptionCache = [];
     private static ?array $secondaryLookup = null;
     private PDO $db;
     private ?string $path = null;
@@ -294,7 +305,11 @@ class Standardizer {
 
     /** Uppercases and strips the punctuation Pub 28 drops, keeping # / and - where they mean something. */
     public static function cleanText(?string $s): string {
-        $s = strtr(trim($s ?? ""), self::ASCII_FOLD);
+        $s = $s ?? "";
+        if ($s !== "" && !preg_match('//u', $s)) {
+            $s = self::fromWindows1252($s);
+        }
+        $s = strtr(trim($s), self::ASCII_FOLD);
         if (preg_match('/[^\x00-\x7F]/', $s) && function_exists("iconv")) {
             $t = @iconv("UTF-8", "ASCII//TRANSLIT//IGNORE", $s);
             $s = $t === false ? $s : $t;
@@ -306,8 +321,26 @@ class Standardizer {
         $s = str_replace("\x01", ".", $s);
         // A hyphen between words is a separator ("RD - REAR"); inside one it stays ("12-34", "TWENTY-NINTH")
         $s = preg_replace('/\s+-+\s*|\s*-+\s+|^-+|-+$/', " ", $s);
-        $s = preg_replace('/#\s*/', "# ", $s);
+        $s = preg_replace('/\s*#\s*/', " # ", $s);
         return trim(preg_replace('/\s+/', " ", $s));
+    }
+
+    /** Text that isn't valid UTF-8 is almost always Windows-1252 (Borb\xF3n): convert it so the accents fold instead of vanishing. */
+    public static function fromWindows1252(string $s): string {
+        $out = "";
+        for ($i = 0, $n = strlen($s); $i < $n; $i++) {
+            $b = ord($s[$i]);
+            if ($b < 0x80) {
+                $out .= $s[$i];
+            } else if (isset(self::CP1252[$b])) {
+                $out .= self::CP1252[$b];
+            } else if ($b >= 0xA0) {
+                $out .= chr(0xC0 | ($b >> 6)) . chr(0x80 | ($b & 0x3F));
+            } else {
+                $out .= " ";
+            }
+        }
+        return $out;
     }
 
     /** ZIP from whatever's in the column: "59601-1234", "596011234", or "2134" (Excel ate the leading zero). */
@@ -341,13 +374,50 @@ class Standardizer {
                 }
             }
             self::$informalSuffixLookup = self::$suffixLookup;
-            foreach (self::SUFFIX_INFORMAL as $abbr => $variants) {
-                foreach ($variants as $v) {
-                    self::$informalSuffixLookup[$v] ??= $abbr;
-                }
+            foreach (self::SUFFIX_INFORMAL as $variant => $abbrs) {
+                self::$informalSuffixLookup[$variant] ??= $abbrs[0];
             }
         }
         return ($informal ? self::$informalSuffixLookup : self::$suffixLookup)[$word] ?? null;
+    }
+
+    /**
+     * Every suffix a word might be, for matching against the file: the standard one, the informal ones
+     * (CL could be CT or CIR), or for a longer word that isn't a suffix, any suffix one typo away
+     * (TERRANC => TER). The file decides which, if any.
+     */
+    public static function suffixOptions(string $word): array {
+        if (isset(self::$suffixOptionCache[$word])) {
+            return self::$suffixOptionCache[$word];
+        }
+        $out = [];
+        if (($s = self::suffixAbbr($word)) !== null) {
+            $out[] = $s;
+        }
+        foreach (self::SUFFIX_INFORMAL[$word] ?? [] as $s) {
+            $out[] = $s;
+        }
+        if (count($out) == 0 && strlen($word) >= 5 && !preg_match('/\d/', $word)) {
+            foreach (self::SUFFIXES as $abbr => $variants) {
+                foreach ($variants as $v) {
+                    if (abs(strlen($v) - strlen($word)) <= 1 && $v[0] === $word[0] && self::typoDistance($word, $v) <= 1) {
+                        $out[] = $abbr;
+                        break;
+                    }
+                }
+            }
+        }
+        if (count(self::$suffixOptionCache) > 5000) {
+            self::$suffixOptionCache = [];
+        }
+        return self::$suffixOptionCache[$word] = array_values(array_unique($out));
+    }
+
+    /** NORTH WEST, N W, SOUTH EAST... as two words: the one directional, or null */
+    private static function compoundDirectional(string $a, string $b): ?string {
+        $ns = ["N" => "N", "NORTH" => "N", "S" => "S", "SOUTH" => "S"];
+        $ew = ["E" => "E", "EAST" => "E", "W" => "W", "WEST" => "W"];
+        return isset($ns[$a], $ew[$b]) ? $ns[$a] . $ew[$b] : null;
     }
 
     /** "MONTANA" or "MT" => "MT"; anything else => null */
@@ -433,6 +503,10 @@ class Standardizer {
         [$designator, $needsId] = $sec;
         $id = "";
         $used = 1;
+        // "APT # 4", "PMB #43": the # is just decoration
+        if ($designator !== "#" && ($tokens[1] ?? "") === "#" && isset($tokens[2])) {
+            array_splice($tokens, 1, 1);
+        }
         if (isset($tokens[1]) && ($needsId ? self::isDesignatedUnitId($tokens[1]) : self::isUnitId($tokens[1])) && self::suffixAbbr($tokens[1]) === null) {
             $id = $tokens[1];
             $used = 2;
@@ -485,6 +559,12 @@ class Standardizer {
         }
 
         $tokens = explode(" ", $line);
+        // "2ND FLOOR" is FL 2
+        for ($i = 0; $i < count($tokens) - 1; $i++) {
+            if (preg_match('/^(\d+)(ST|ND|RD|TH)$/', $tokens[$i], $m) && in_array($tokens[$i + 1], ["FLOOR", "FL", "FLR"])) {
+                array_splice($tokens, $i, 2, ["FL", $m[1]]);
+            }
+        }
         $secondary = self::parseSecondary($tokens);
         if ($secondary !== null) {
             return ["type" => "secondary", "secondary" => $secondary] + $out;
@@ -501,6 +581,16 @@ class Standardizer {
             }
         }
         if ($number === "") {
+            // Puerto Rico and Latin American order, the number after the street: CALLE HENNA 2209 SANTURCE
+            for ($p = 1; $p < count($tokens); $p++) {
+                if (preg_match('/^\d{1,6}[A-Z]?$/', $tokens[$p])
+                        && !preg_match('/^(HWY|HIGHWAY|ROUTE|RTE|RT|CARR|CARRETERA|CALLE|AVENIDA|AVE|AV|COUNTY|ROAD|RD|INTERSTATE|I|US|SR|CR|FM|KM|BOX|UNIT|PSC|CMR|PMB|#|NO|CASA|LOTE|BLOQUE|SECTOR|MANZANA)$/', $tokens[$p - 1])
+                        && self::secondaryAbbr($tokens[$p - 1]) === null) {
+                    $extra = implode(" ", array_slice($tokens, $p + 1));
+                    return ["type" => "street", "number" => $tokens[$p], "fraction" => "", "reordered" => true, "readings" => [
+                            ["street" => array_slice($tokens, 0, $p), "secondary" => null, "likely" => true, "extra" => $extra]]] + $out;
+                }
+            }
             return $out;
         }
         $fraction = "";
@@ -516,6 +606,10 @@ class Standardizer {
         $preferred = null;
         for ($i = 1; $i < count($tokens); $i++) {
             $sec = self::parseSecondary(array_slice($tokens, $i));
+            // "BOGGY CREEK RD ST Z": after a complete street, ST is a suite
+            if ($sec === null && $tokens[$i] === "ST" && $i >= 2 && self::suffixAbbr($tokens[$i - 1]) !== null && isset($tokens[$i + 1])) {
+                $sec = self::parseSecondary(array_merge(["STE"], array_slice($tokens, $i + 1)));
+            }
             if ($sec === null) {
                 continue;
             }
@@ -523,7 +617,7 @@ class Standardizer {
             $prev = $tokens[$i - 1];
             $afterSuffix = self::suffixAbbr($prev) !== null || self::directionalAbbr($prev) !== null;
             // A word like FRONT or LOWER is only a unit when the street before it already looks complete
-            $likely = $sec["designator"] == "#" || self::secondaryAbbr($tokens[$i])[1] === true || $afterSuffix;
+            $likely = $sec["designator"] == "#" || (self::secondaryAbbr($tokens[$i])[1] ?? true) === true || $afterSuffix; // (ST read as STE has no entry)
             $readings[] = ["street" => $street, "secondary" => $sec, "likely" => $likely];
             if ($likely && $preferred === null) {
                 $preferred = count($readings) - 1;
@@ -535,9 +629,27 @@ class Standardizer {
         $last = end($tokens);
         $beforeLast = count($tokens) >= 2 ? $tokens[count($tokens) - 2] : "";
         if (count($tokens) >= 2 && $preferred === null
-                && (preg_match('/^\d{1,5}[A-Z]?$/', $last) || (preg_match('/^[A-Z]$/', $last) && self::directionalAbbr($last) === null))
-                && !preg_match('/^(HWY|HIGHWAY|ROUTE|RTE|RT|ROAD|RD|INTERSTATE|I|US|SR|CR|FM|COUNTY|STATE|BOX|UNIT|PSC|CMR)$/', $beforeLast)) {
+                && (preg_match('/^[A-Z]?\d{1,5}[A-Z]?$/', $last) || (preg_match('/^[A-Z]$/', $last) && self::directionalAbbr($last) === null))
+                && !preg_match('/^(HWY|HIGHWAY|ROUTE|RTE|RT|INTERSTATE|I|US|SR|CR|FM|COUNTY|STATE|BOX|UNIT|PSC|CMR)$/', $beforeLast)) {
             $readings[] = ["street" => array_slice($tokens, 0, -1), "secondary" => ["designator" => "#", "id" => $last, "text" => "# $last"], "likely" => false];
+        }
+        // Something after a complete street that isn't a unit: the city ("RIVER ST SAXTONS RIVER VT"), a neighborhood,
+        // or junk ("CARTER DR MARINSON"). Tried at each suffix (and a directional after it), only if the file likes it.
+        for ($p = 1; $p < count($tokens) - 1; $p++) {
+            if (self::suffixAbbr($tokens[$p], true) === null) {
+                continue;
+            }
+            $end = $p + (isset($tokens[$p + 1]) && self::directionalAbbr($tokens[$p + 1]) !== null && strlen($tokens[$p + 1]) <= 2 ? 1 : 0);
+            $rest = array_slice($tokens, $end + 1);
+            if (count($rest) == 0 || self::parseSecondary($rest) !== null) {
+                continue;
+            }
+            // A unit and then junk after it ("RD 601 ORLANDO") isn't worth guessing at
+            $readings[] = ["street" => array_slice($tokens, 0, $end + 1), "secondary" => null, "likely" => false, "extra" => implode(" ", $rest), "penalty" => 1];
+        }
+        // "16N STONINGTON RD": a directional stuck to the house number
+        if (preg_match('/^(\d+)([NSEW])$/', $number, $m) && self::directionalAbbr($tokens[0]) === null) {
+            $readings[] = ["street" => array_merge([$m[2]], $tokens), "secondary" => null, "likely" => false, "number" => $m[1]];
         }
         // "1234 A MAIN ST" meaning 1234A (a separate letter, not a street named A or a directional)
         if (count($tokens) >= 3 && preg_match('/^\d+$/', $number) && preg_match('/^[A-Z]$/', $tokens[0]) && self::directionalAbbr($tokens[0]) === null) {
@@ -572,15 +684,23 @@ class Standardizer {
         if ($n > 1 && self::directionalAbbr($tokens[0]) !== null) {
             $preOptions[] = [self::directionalAbbr($tokens[0]), 1, $tokens[0]];
         }
+        if ($n > 2 && ($d = self::compoundDirectional($tokens[0], $tokens[1])) !== null) {
+            $preOptions[] = [$d, 2, "$tokens[0] $tokens[1]"]; // NORTH WEST 153 ST
+        }
         foreach ($preOptions as [$pre, $start, $preWord]) {
             $postOptions = [["", $n, ""]];
             if ($n - $start > 1 && self::directionalAbbr($tokens[$n - 1]) !== null) {
                 $postOptions[] = [self::directionalAbbr($tokens[$n - 1]), $n - 1, $tokens[$n - 1]];
             }
+            if ($n - $start > 2 && ($d = self::compoundDirectional($tokens[$n - 2], $tokens[$n - 1])) !== null) {
+                $postOptions[] = [$d, $n - 2, $tokens[$n - 2] . " " . $tokens[$n - 1]];
+            }
             foreach ($postOptions as [$post, $end, $postWord]) {
                 $suffixOptions = [["", $end]];
-                if ($end - $start > 1 && self::suffixAbbr($tokens[$end - 1], $informal) !== null) {
-                    $suffixOptions[] = [self::suffixAbbr($tokens[$end - 1], $informal), $end - 1];
+                if ($end - $start > 1) {
+                    foreach ($informal ? self::suffixOptions($tokens[$end - 1]) : array_filter([self::suffixAbbr($tokens[$end - 1])]) as $sfx) {
+                        $suffixOptions[] = [$sfx, $end - 1];
+                    }
                 }
                 foreach ($suffixOptions as [$suffix, $nameEnd]) {
                     $name = array_slice($tokens, $start, $nameEnd - $start);
@@ -593,6 +713,12 @@ class Standardizer {
             }
         }
         return $out;
+    }
+
+    /** 1 => 1ST, 2 => 2ND, 3 => 3RD, 11 => 11TH, 153 => 153RD */
+    public static function ordinalSuffix(int $n): string {
+        $suffix = ($n % 100 >= 11 && $n % 100 <= 13) ? "TH" : (["TH", "ST", "ND", "RD"][$n % 10] ?? "TH");
+        return $n . $suffix;
     }
 
     /** "FIFTH" => "5TH", "TWENTY-NINTH" => "29TH", "FORTIETH" => "40TH", anything else => null */
@@ -624,6 +750,10 @@ class Standardizer {
         // MTN VIEW DR is MOUNTAIN VIEW DR, LK SHORE DR is LAKE SHORE DR
         $longhand = array_map(fn($w) => isset(self::SUFFIXES[$w][0]) ? self::SUFFIXES[$w][0] : (self::ordinalWord($w) ?? $w), $words);
         $spellings = [implode(" ", $words), implode(" ", $expanded), implode(" ", $abbreviated), implode(" ", $longhand)];
+        // A numbered street typed without its ordinal: SW 147 PL is SW 147TH PL, NW 153 ST is NW 153RD ST
+        if (preg_grep('/^\d+$/', $words)) {
+            $spellings[] = implode(" ", array_map(fn($w) => preg_match('/^\d+$/', $w) ? self::ordinalSuffix((int) $w) : $w, $expanded));
+        }
         // "N SLOPE" typed for the street named NORTH SLOPE (and "BOULDER W" for BOULDER WEST)
         $full = ["N" => "NORTH", "S" => "SOUTH", "E" => "EAST", "W" => "WEST", "NE" => "NORTHEAST", "NW" => "NORTHWEST", "SE" => "SOUTHEAST", "SW" => "SOUTHWEST"];
         if (count($words) > 1 && (isset($full[$words[0]]) || isset($full[end($words)]))) {
@@ -709,6 +839,9 @@ class Standardizer {
             case "secondary":
                 return $p["secondary"]["text"];
             case "street":
+                if (!empty($p["reordered"])) {
+                    return $p["text"];
+                }
                 $reading = $p["readings"][0];
                 // Without the database, NORTH SLOPE RD and NORTH MAIN ST look the same, so a spelled-out
                 // directional stays spelled out; only N or N. is treated as one
@@ -751,6 +884,21 @@ class Standardizer {
         if ($high === "") {
             $high = $low;
         }
+        // Queens: the file has 144-01 to 144-99, typed as 144-15 or 14415
+        if (preg_match('/^(\d+)-(\d+)$/', $low, $lm) && preg_match('/^(\d+)-(\d+)$/', $high, $hm)) {
+            $w = strlen($lm[2]);
+            if (preg_match('/^(\d+)-(\d+)$/', $number, $nm)) {
+                [$a, $b] = [(int) $nm[1], (int) $nm[2]];
+            } else if (preg_match('/^\d+$/', $number) && strlen($number) > $w) {
+                [$a, $b] = [(int) substr($number, 0, -$w), (int) substr($number, -$w)];
+            } else {
+                return false;
+            }
+            $lo = [(int) $lm[1], (int) $lm[2]];
+            $hi = [(int) $hm[1], (int) $hm[2]];
+            $parity = strtoupper(trim($parity ?? "B"));
+            return [$a, $b] >= $lo && [$a, $b] <= $hi && !(($parity == "E" && $b % 2) || ($parity == "O" && !($b % 2)));
+        }
         $candidates = [$number];
         if (str_contains($number, "-")) {
             $candidates[] = str_replace("-", "", $number); // Queens-style 12-34
@@ -782,6 +930,14 @@ class Standardizer {
             return true;
         }
         return false;
+    }
+
+    /** The house number the way the file writes it: 14415 against a 144-01 range is 144-15 */
+    public static function fileNumberFormat(string $number, ?string $low): string {
+        if (preg_match('/^(\d+)-(\d+)$/', trim($low ?? ""), $lm) && preg_match('/^\d+$/', $number) && strlen($number) > strlen($lm[2])) {
+            return substr($number, 0, -strlen($lm[2])) . "-" . substr($number, -strlen($lm[2]));
+        }
+        return $number;
     }
 
     /*
@@ -893,12 +1049,21 @@ class Standardizer {
         if (strlen($name) < 4 || preg_match('/\d/', $name)) {
             return null;
         }
-        $limit = strlen($name) >= 8 ? 2 : 1;
+        $limit = strlen($name) >= 7 ? 2 : 1;
         $best = [];
         $bestDistance = $limit + 1;
+        $abbreviations = [];
         foreach ($zips as $zip) {
             foreach ($this->streetNamesInZip($zip) as $street) {
-                if ($street === "" || $street[0] !== $name[0] || abs(strlen($street) - strlen($name)) > $limit) {
+                if (strlen($street) < 2) {
+                    continue;
+                }
+                // POTTSWN for POTTSTOWN: the letters typed, in order, with some left out
+                if ($street[0] === $name[0] && strlen($street) > strlen($name) && strlen($name) >= 0.6 * strlen($street) && self::isSubsequence($name, $street)) {
+                    $abbreviations[$street] = true;
+                }
+                // Same first letter, or the first two swapped (AOK POND for OAK POND)
+                if (!($street[0] === $name[0] || ($street[0] === $name[1] && $street[1] === $name[0])) || abs(strlen($street) - strlen($name)) > $limit) {
                     continue;
                 }
                 $d = self::typoDistance($name, $street);
@@ -910,7 +1075,20 @@ class Standardizer {
                 }
             }
         }
-        return count($best) == 1 ? array_key_first($best) : null;
+        if (count($best) == 1) {
+            return array_key_first($best);
+        }
+        return count($best) == 0 && count($abbreviations) == 1 ? array_key_first($abbreviations) : null;
+    }
+
+    private static function isSubsequence(string $short, string $long): bool {
+        $j = 0;
+        for ($i = 0, $n = strlen($long); $i < $n && $j < strlen($short); $i++) {
+            if ($long[$i] === $short[$j]) {
+                $j++;
+            }
+        }
+        return $j === strlen($short);
     }
 
     /** Edit distance counting a swap of two neighboring letters as one typo (optimal string alignment). */
@@ -1075,12 +1253,12 @@ class Standardizer {
         if ($parsed["type"] == "street") {
             foreach ($parsed["readings"] as $reading) {
                 foreach (self::streetCandidates($reading["street"], true) as $cand) {
-                    $tries[] = [$cand, $reading["secondary"], $reading["likely"], $reading["number"] ?? $parsed["number"]];
+                    $tries[] = [$cand, $reading["secondary"], $reading["likely"], $reading["number"] ?? $parsed["number"], $reading["penalty"] ?? 0, $reading["extra"] ?? ""];
                 }
             }
             $types = ["S", "H", "F"];
         } else {
-            $tries[] = [["pre" => "", "name" => $parsed["name"], "suffix" => "", "post" => "", "names" => [$parsed["name"]]], null, true, $parsed["number"]];
+            $tries[] = [["pre" => "", "name" => $parsed["name"], "suffix" => "", "post" => "", "names" => [$parsed["name"]]], null, true, $parsed["number"], 0, ""];
             $types = ["pobox" => ["P"], "rural" => ["R"], "military" => ["S", "H", "P"], "general" => ["G"]][$parsed["type"]];
         }
         if (count($tries) == 0) {
@@ -1118,18 +1296,19 @@ class Standardizer {
         $streets = [];
         $unitHits = [];
         foreach ($rows as $row) {
-            foreach ($tries as [$cand, $secondary, $likely, $number]) {
+            foreach ($tries as [$cand, $secondary, $likely, $number, $penalty, $extra]) {
                 if (!in_array($row["StName"], $cand["names"], true)) {
                     continue;
                 }
                 $s = self::scoreRow($row, $cand, $number, $secondary, $likely, $company);
+                $s["score"] -= $penalty;
                 $key = implode("|", [$row["ZipCode"], $row["StPreDirAbbr"], $row["StName"], $row["StSuffixAbbr"], $row["StPostDirAbbr"]]);
                 if ($s["unitInRange"] && $s["inRange"]) {
                     $unitHits[$key][$row["AddressSecAbbr"] . "|" . $row["Plus4Low"]] = $row["AddressSecAbbr"];
                 }
                 if (!isset($streets[$key]) || $s["score"] > $streets[$key]["score"]
                         || ($s["score"] == $streets[$key]["score"] && $s["width"] < $streets[$key]["width"])) {
-                    $streets[$key] = $s + ["row" => $row, "cand" => $cand, "secondary" => $secondary, "fuzzy" => $fuzzy, "number" => $number];
+                    $streets[$key] = $s + ["row" => $row, "cand" => $cand, "secondary" => $secondary, "fuzzy" => $fuzzy, "number" => $number, "extra" => $extra];
                 }
             }
         }
@@ -1183,8 +1362,9 @@ class Standardizer {
         $deliverable = ["street", "pobox", "rural", "military", "general"];
         $line1 = self::parseLine($street1 ?? "");
         $line2 = self::parseLine($street2 ?? "");
-        // "STE 200" or "ATTN BOB" on line 1 and the street on line 2: the delivery line goes first
-        if (!in_array($line1["type"], $deliverable) && in_array($line2["type"], $deliverable)) {
+        // "STE 200" or "ATTN BOB" on line 1 and the street on line 2: the delivery line goes first.
+        // (Not for a line that only looks like a street with its number moved to the front: too much of a guess.)
+        if (!in_array($line1["type"], $deliverable) && in_array($line2["type"], $deliverable) && empty($line2["reordered"])) {
             [$line1, $line2] = [$line2, $line1];
         }
 
@@ -1297,6 +1477,7 @@ class Standardizer {
                 if (in_array($row["State"], ["PR", "VI"]) && preg_match('/^[A-Z]-\d/', $number)) {
                     $number = str_replace("-", "", $number);
                 }
+                $number = self::fileNumberFormat($number, $row["AddressPrimaryLowNumber"]);
                 $result["street1"] = self::joinParts($number, $line1["fraction"], $street["pre"], $street["name"], $street["suffix"], $street["post"], $secondaryOnLine1 ? $secondaryText : "");
                 break;
             case "pobox":
@@ -1319,12 +1500,37 @@ class Standardizer {
         $result["city"] = $this->chooseCity($row["ZipCode"], $row["PreferredLastLineKey"], $city);
         $result["fuzzy"] = $match["fuzzy"];
         $result["record_type"] = $row["RecordType"];
+        // Words after the street that weren't part of it: the city, state and ZIP typed again are dropped,
+        // anything else (a neighborhood, a note) moves to line 2 rather than being lost
+        $extra = trim($match["extra"] ?? "");
+        if ($extra !== "") {
+            $names = [$city, $result["city"], $row["State"], $state, $zip, $row["ZipCode"]];
+            foreach ($this->zipRows($row["ZipCode"]) as $zr) {
+                array_push($names, $zr["City"], $zr["CityAliasName"], $zr["CityAliasAbbreviation"]);
+            }
+            $names = array_unique(array_filter(array_map(fn($n) => trim($n ?? ""), $names), fn($n) => $n !== ""));
+            usort($names, fn($a, $b) => strlen($b) <=> strlen($a));
+            foreach ($names as $n) {
+                $extra = trim(preg_replace('/(^| )' . preg_quote($n, "/") . '( |$)/', " ", " $extra "));
+            }
+            $extra = trim(preg_replace('/^(\d{5}(-?\d{4})?|USA|US)$/', "", trim(preg_replace('/\s+/', " ", $extra))));
+            if ($extra !== "") {
+                $result["street2"] = trim($result["street2"] . " " . $extra);
+            }
+        }
         $result["lacs"] = ($row["LACSStatus"] ?? "") == "L";
         if ($result["match"] == self::MATCH_EXACT) {
             $result["carrier_route"] = $row["CarrierRoute"];
             $result["message"] = $match["unitAmbiguous"] ? "Unit matches more than one kind of unit here; add the designator" : $unitNote;
             if ($row["Plus4Low"] !== "" && $row["Plus4Low"] === $row["Plus4High"] && ($row["RecordType"] != "F" || $match["firmMatched"]) && !$match["unitAmbiguous"]) {
                 $result["plus4"] = $row["Plus4Low"];
+            } else if ($row["RecordType"] == "P" && preg_match('/^\d{4}$/', $row["Plus4Low"]) && preg_match('/^\d{4}$/', $row["Plus4High"]) && preg_match('/^\d+$/', $line1["number"])) {
+                // A range of PO boxes with a matching range of +4s (boxes 616700-616799 are +4 6700-6799): count along
+                $lo = self::numberParts($row["AddressPrimaryLowNumber"]);
+                $hi = self::numberParts($row["AddressPrimaryHighNumber"]);
+                if ($lo !== null && $hi !== null && (int) $row["Plus4High"] - (int) $row["Plus4Low"] == $hi[1] - $lo[1]) {
+                    $result["plus4"] = sprintf("%04d", (int) $row["Plus4Low"] + ((int) $line1["number"] - $lo[1]));
+                }
             }
         } else {
             $result["message"] = $line1["number"] === "" ? "No house number" : "Number not in any range for this street";

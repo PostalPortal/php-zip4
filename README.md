@@ -127,6 +127,19 @@ always opened read-only, and only `createIndexes()` opens it for writing.
 - A house number typed twice (`124 124 MAIN ST`) or with its letter apart (`245 A W 29TH ST`); Puerto Rico's `A-12`;
   a bare trailing unit (`123 MAIN ST 4`); Spanish directionals
 - A single-address record is preferred over the block range around it
+- Typing seen in real store customer lists:
+  - Misspelled suffixes (`STRET`, `TERRANCE`, `PRKWY`, `BLV`), and any longer word one typo from a suffix
+    when the file confirms it. `CL` is tried as CT or CIR, `CR` as CRK or CIR, `WEY` as WAY.
+  - Two-word directionals (`NORTH WEST`), and numbered streets typed without the ordinal (`SW 147 PLACE` → `SW 147TH PL`)
+  - Street names with letters swapped at the start (`AOK POND` → `OAK POND`), or left out (`POTTSWN` → `POTTSTOWN`)
+  - Something after a complete street. The city and state typed again are dropped; anything else, like
+    a neighborhood or a note, moves to line 2.
+  - A bare unit after any suffix (`RD 1915`, `AVE L2`); `ST Z` after a complete street as `STE Z`; `2ND FLOOR`
+    as `FL 2`; `PMB`; `APT # 4`; Spanish unit words (`APTO`, `EDIFICIO`, `PISO`)
+  - Puerto Rico's street-then-number order (`CALLE HENNA 2209`). It's left as typed if it can't be verified.
+  - Queens numbers typed without the hyphen (`14415` → `144-15`), and a directional stuck to the number (`16N`)
+  - PO box +4s worked out from a range of boxes
+  - Windows-1252 text that isn't UTF-8 (old PostalMate exports), so the accents fold instead of vanishing
 - PO boxes, rural routes and highway contract routes, general delivery, APO/FPO/DPO (`PSC`, `CMR`, `UNIT ... BOX`)
 - Firm records: the firm's +4 only for that firm, and the street's +4 for anyone else at the address
 - Alternate (old or vanity) street names rewritten to the base name

@@ -218,6 +218,43 @@ expect("house number letter typed separately", ZIP4::match("245 A W 29th St", ""
 expect("bare trailing unit", $h("316 N Park Ave 15"), ["verified" => true, "street1" => "316 N PARK AVE APT 15", "plus4" => "4102"]);
 expect("en dash in a Queens-style house number", ZIP4::match("1–2 Last Chance Gulch", "", "", "", "59601"), ["verified" => true, "street1" => "1-2 LAST CHANCE GULCH"]);
 
+echo "Patterns from a real store's customer list\n";
+$h = fn($street, $street2 = "", $c = "Helena", $st = "MT", $z = "59601", $co = "") => ZIP4::match($street, $street2, $c, $st, $z, $co);
+expect("suffix typo STRET", $h("6546 quill stret"), ["verified" => true, "street1" => "6546 QUILL ST", "plus4" => "8825"]);
+expect("suffix typo TERRANCE", $h("8952 NW Maple Terrance"), ["verified" => true, "street1" => "8952 NW MAPLE TER", "plus4" => "8826"]);
+expect("suffix typo BLV, name typo SATELITE, unit on line 2", $h("9550 SATELITE BLV", "SUITE 100"), ["verified" => true, "street1" => "9550 SATELLITE BLVD", "street2" => "STE 100", "plus4" => "8827"]);
+expect("WEY for WAY (only because the file has it)", $h("3 Hurd Wey"), ["verified" => true, "street1" => "3 HURD WAY", "plus4" => "8824"]);
+expect("CL is CT here", $h("2925 Pine Hollow Cl"), ["verified" => true, "street1" => "2925 PINE HOLLOW CT", "plus4" => "8823"]);
+expect("NORTH WEST, and a numbered street without its ordinal", $h("1531 NORTH WEST 153 STREET"), ["verified" => true, "street1" => "1531 NW 153RD ST", "plus4" => "8820"]);
+expect("147 PLACE is 147TH PL, in the city's other ZIP", $h("8616 sw 147 place"), ["verified" => true, "street1" => "8616 SW 147TH PL", "zip" => "59602", "zip_changed" => true]);
+expect("E 4 ST", $h("531 E 4 ST"), ["verified" => true, "street1" => "531 E 4TH ST", "plus4" => "8822"]);
+expect("first two letters swapped (AOK POND), informal CR for CIR", $h("8184 aok pond cr"), ["verified" => true, "street1" => "8184 OAK POND CIR", "plus4" => "8830", "spelling_corrected" => true]);
+expect("letters left out (POTTSWN)", $h("1442 Pottswn Pike Unit 173"), ["verified" => true, "street1" => "1442 POTTSTOWN PIKE UNIT 173", "plus4" => "8829"]);
+expect("misspelled street on line 2 alone, with a bare unit", $h("", "1375 W LANDSTRET ROAD 601"), ["verified" => true, "street1" => "1375 W LANDSTREET RD # 601", "plus4" => "8828"]);
+expect("bare unit after RD", $h("1057 S Hiawassee RD 1915"), ["verified" => true, "street1" => "1057 S HIAWASSEE RD # 1915", "plus4" => "8837"]);
+expect("ST Z after a complete street is STE Z", $h("11784 Willow Creek Rd St Z"), ["verified" => true, "street1" => "11784 WILLOW CREEK RD STE Z", "plus4" => "8831"]);
+expect("2ND FLOOR and a PMB", $h("7726 WINEGARD RD 2ND FLOOR PMB 43"), ["verified" => true, "street1" => "7726 WINEGARD RD FL 2 PMB 43", "plus4" => "8833"]);
+expect("PMB # 43", $h("7726 Winegard Rd PMB #43"), ["verified" => true, "street1" => "7726 WINEGARD RD PMB 43"]);
+expect("junk after the street moves to line 2", $h("723 CARTER DR MARINSON"), ["verified" => true, "street1" => "723 CARTER DR", "street2" => "MARINSON", "plus4" => "8832"]);
+expect("the city and state after the street are dropped", $h("723 Carter Dr Helena, MT"), ["verified" => true, "street1" => "723 CARTER DR", "street2" => ""]);
+expect("Puerto Rico order: street, number, neighborhood", ZIP4::match("calle henna 2209 santurce", "", "Adjuntas", "PR", "00601"),
+        ["verified" => true, "street1" => "2209 CALLE HENNA", "street2" => "SANTURCE", "plus4" => "8834"]);
+expect("...and left as typed when it isn't in the file", ZIP4::match("calle rosa 15 santurce", "", "Adjuntas", "PR", "00601"),
+        ["verified" => false, "normalized" => ["street1" => "CALLE ROSA 15 SANTURCE", "street2" => "", "city" => "ADJUNTAS", "state" => "PR", "zip" => "00601"]]);
+expect("Queens number typed without the hyphen", ZIP4::match("14415 41st ave l2", "", "New York", "NY", "10001"), ["verified" => true, "street1" => "144-15 41ST AVE # L2", "plus4" => "8835"]);
+expect("a directional stuck to the house number", $h("16n stonington rd"), ["verified" => true, "street1" => "16 N STONINGTON RD", "plus4" => "8836"]);
+expect("a PO box's +4 from a range of them", $h("PO Box 616763"), ["verified" => true, "street1" => "PO BOX 616763", "plus4" => "6763"]);
+expect("Windows-1252 text (not UTF-8)", $h("10 Pe\xF1a Blvd"), ["verified" => true, "street1" => "10 PENA BLVD"]);
+expect("Spanish unit words", $h("316 N Park Ave Apto 5"), ["verified" => true, "street1" => "316 N PARK AVE APT 5", "plus4" => "4101"]);
+expect("a foreign-looking line 2 isn't promoted over line 1", $h("URBANIZACION PRADOS", "Sector Tulipan. Casa# 14A", "", "", ""),
+        ["verified" => false, "normalized" => ["street1" => "URBANIZACION PRADOS", "street2" => "SECTOR TULIPAN CASA # 14A", "city" => "", "state" => "", "zip" => ""]]);
+check("ordinals for numbers", array_map([Standardizer::class, "ordinalSuffix"], [1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111, 153])
+        == ["1ST", "2ND", "3RD", "4TH", "11TH", "12TH", "13TH", "21ST", "22ND", "101ST", "111TH", "153RD"]);
+check("Queens ranges", Standardizer::inRange("14415", "144-01", "144-99", "B") && Standardizer::inRange("144-15", "144-01", "144-99", "B")
+        && !Standardizer::inRange("14515", "144-01", "144-99", "B") && Standardizer::fileNumberFormat("14415", "144-01") == "144-15");
+check("suffix options", Standardizer::suffixOptions("CL") == ["CT", "CIR"] && Standardizer::suffixOptions("BOULEVAD") == ["BLVD"] && Standardizer::suffixOptions("MAPLE") == []);
+check("Windows-1252", Standardizer::fromWindows1252("Borb\xF3n \x96 \x93x\x94") == "Borbón – “x”");
+
 echo "Whole addresses in one field\n";
 expect("street, city, state ZIP all on line 1", ZIP4::match("123 N Main St, Helena, MT 59601", "", "", "", ""), ["verified" => true, "street1" => "123 N MAIN ST", "city" => "HELENA", "zip+4" => "59601-1002"]);
 expect("...with a unit, ZIP+4 and USA", ZIP4::match("316 N Park Ave Apt 5, Helena MT 59601-4101, USA", "", "", "", ""), ["verified" => true, "street1" => "316 N PARK AVE APT 5", "plus4" => "4101"]);
